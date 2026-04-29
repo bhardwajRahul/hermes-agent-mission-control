@@ -1,0 +1,45 @@
+import type { AgentRunSettings, SessionMetadata, TaskMessage, UsageStats } from '../../shared/types.js';
+
+export type { AgentRunSettings, UsageStats };
+
+export interface AgentRunOptions {
+  systemMessage?: string;
+  settings?: AgentRunSettings;
+  task?: {
+    id: string;
+    title?: string | null;
+  };
+}
+
+export interface StreamEvent {
+  type: 'text_delta' | 'thinking_delta' | 'tool_progress' | 'done' | 'error';
+  content?: string;
+  error?: string;
+  code?: string;
+  sessionId?: string;
+  tool?: string;
+  status?: 'running' | 'completed' | 'error';
+  duration?: number;
+  label?: string;
+  usage?: UsageStats;
+}
+
+export interface AgentAdapter {
+  chat(
+    sessionId: string,
+    message: string,
+    options?: AgentRunOptions,
+  ): Promise<{ text: string; sessionId: string }>;
+
+  chatStream(
+    sessionId: string,
+    message: string,
+    options?: AgentRunOptions,
+  ): AsyncIterable<StreamEvent>;
+
+  healthCheck(): Promise<boolean>;
+
+  getMessages(sessionId: string, taskId: string): Promise<TaskMessage[]>;
+
+  getSessionMetadata(sessionId: string): Promise<SessionMetadata | null>;
+}

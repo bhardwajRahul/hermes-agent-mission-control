@@ -1,0 +1,37 @@
+import express from 'express';
+import cors from 'cors';
+import { tasksRouter } from './routes/tasks.js';
+import { chatRouter } from './routes/chat.js';
+import { createHeartbeatRouter } from './routes/heartbeat.js';
+import { createAgentRouter, createTaskAgentSettingsRouter } from './routes/agent.js';
+import { createCronRouter, createTaskCronRouter } from './routes/cron.js';
+import { HermesWorkerAdapter } from './adapters/hermes-worker.js';
+import { initSSE, addClient } from './events.js';
+
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+const adapter = new HermesWorkerAdapter();
+
+app.get('/api/health', async (_req, res) => {
+  const hermes = await adapter.healthCheck();
+  res.json({ ok: true, hermes });
+});
+
+app.get('/api/events', (req, res) => {
+  initSSE(res);
+  addClient(res);
+});
+
+app.use('/api/tasks', tasksRouter);
+app.use('/api/tasks', createTaskCronRouter(adapter));
+app.use('/api/tasks', createTaskAgentSettingsRouter(adapter));
+app.use('/api/tasks', chatRouter);
+app.use('/api/agent', createAgentRouter(adapter));
+app.use('/api/cron', createCronRouter(adapter));
+app.use('/api/heartbeat', createHeartbeatRouter(adapter));
+
+export { adapter };
+export default app;
