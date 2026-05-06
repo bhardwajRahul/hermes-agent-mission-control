@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { createInterface, type Interface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import type { AgentDefaults, AgentModelsResponse, CronJob, CronRun, SessionMetadata, TaskMessage } from '../../shared/types.js';
 import type { AgentAdapter, AgentRunOptions, StreamEvent } from './types.js';
 import type { WorkerEvent, WorkerRequest, WorkerResult, WorkerErrorPayload } from './worker-protocol.js';
-import { expandHomePrefix } from '../paths.js';
+import { expandHomePrefix, resolveMinionsWorkspaceDir } from '../paths.js';
 
 const WORKER_READY_TIMEOUT_MS = 10_000;
 
@@ -282,8 +282,10 @@ class HermesWorkerClient {
 
     const python = resolvePython();
     const script = resolveWorkerScript();
+    const workspace = resolveMinionsWorkspaceDir();
+    mkdirSync(workspace, { recursive: true });
     const child = spawn(python, [script], {
-      cwd: process.cwd(),
+      cwd: workspace,
       env: {
         ...process.env,
         HERMES_QUIET: '1',

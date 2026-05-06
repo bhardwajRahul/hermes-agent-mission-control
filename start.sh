@@ -105,7 +105,7 @@ PORT="${PORT:-6969}"
 
 export MINIONS_HOME DB_PATH PORT
 
-mkdir -p "${MINIONS_HOME}/data" "${MINIONS_HOME}/logs" "${MINIONS_HOME}/backups" "$(dirname "${DB_PATH}")"
+mkdir -p "${MINIONS_HOME}/data" "${MINIONS_HOME}/logs" "${MINIONS_HOME}/backups" "${MINIONS_HOME}/workspace" "$(dirname "${DB_PATH}")"
 
 if ! command -v node >/dev/null 2>&1; then
   echo "Node.js is required to run Minions." >&2
@@ -131,6 +131,7 @@ Minions starting
 Mode: ${MODE}
 URL: http://localhost:${PORT}
 State: ${MINIONS_HOME}
+Workspace: ${MINIONS_HOME}/workspace
 Database: ${DB_PATH}
 EOF
 

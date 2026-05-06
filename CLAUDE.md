@@ -53,6 +53,7 @@ All persistent state lives under `MINIONS_HOME` (default: `~/.minions/`):
 - `data/minions.db` — SQLite database
 - `logs/` — log files
 - `backups/` — database backups
+- `workspace/` — default working directory for Hermes task artifacts
 
 ## Key Design Decisions
 
@@ -188,7 +189,7 @@ HERMES_PYTHON=                   # Path to Python with Hermes deps (auto-detecte
 HERMES_AGENT_DIR=                # Path to Hermes agent dir (default: ~/.hermes/hermes-agent)
 HERMES_AGENT_RUN_LIMIT=10        # Max concurrent agent runs in Python worker
 HEARTBEAT_CONCURRENCY=2          # Max concurrent heartbeat checks (capped below AGENT_RUN_LIMIT)
-MINIONS_HOME=~/.minions          # State directory (DB, logs, backups)
+MINIONS_HOME=~/.minions          # State directory (DB, logs, backups, workspace)
 DB_PATH=~/.minions/data/minions.db  # SQLite database path
 ```
 
