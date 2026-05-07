@@ -78,11 +78,12 @@ Don't want to self-host? [Agent37](https://www.agent37.com) offers Minions as a 
 
 ## Roadmap
 
-- OpenClaw adapter
-- Task templates for common workflows
-- Richer cron creation and editing
-- Team and remote access mode
-- Shareable task run reports
+- **File support**: attach files to tasks, browse artifacts agents create
+- **Notifications**: get alerted via Telegram, WhatsApp, or webhook when a task is blocked or needs review
+- **Skills library**: pluggable skill templates for common workflows (lead gen, web research, content pipelines, data collection, competitive monitoring, outbound sequences)
+- **Cron management**: edit schedules and parameters, delete jobs, failure alerts
+- **Workspace file browser**: see files agents have created per task without SSH-ing in
+- **OpenClaw adapter**: run Minions against OpenClaw-hosted agents
 
 ## FAQ
 
