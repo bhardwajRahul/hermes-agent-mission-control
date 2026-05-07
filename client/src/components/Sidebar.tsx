@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
-import { SquarePen, Columns3, Settings, PanelLeftClose, PanelLeft, CalendarClock, Sparkles } from 'lucide-react';
+import { SquarePen, Columns3, Settings, PanelLeftClose, PanelLeft, CalendarClock, Sparkles, Folder } from 'lucide-react';
 import { useStore } from '../lib/store';
 
 const isMac = /Mac/.test(navigator.userAgent);
@@ -73,6 +73,13 @@ export function Sidebar() {
           label="Tasks"
           to="/"
           active={isActive('/')}
+          collapsed={collapsed}
+        />
+        <SidebarLink
+          icon={<Folder size={18} />}
+          label="Files"
+          to="/files"
+          active={isActive('/files')}
           collapsed={collapsed}
         />
         <SidebarLink

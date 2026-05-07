@@ -4,6 +4,14 @@ import type {
   AgentRunSettings,
   CronJob,
   CronRun,
+  FileCreateResponse,
+  FileCreateType,
+  FileDeleteResponse,
+  FileListResponse,
+  FileReadResponse,
+  FileRenameResponse,
+  FileUploadResponse,
+  FileWriteResponse,
   SessionMetadata,
   Task,
   TaskAgentSettings,
@@ -15,6 +23,17 @@ import type {
 export type { AgentRunSettings };
 
 export const BASE = '/api';
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public code?: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
 
 export interface SkillMeta {
   id: string;
@@ -29,15 +48,24 @@ export interface SkillMeta {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const { headers: extraHeaders, ...rest } = init ?? {};
+  const isFormDataBody = typeof FormData !== 'undefined' && rest.body instanceof FormData;
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...extraHeaders as Record<string, string> },
+    headers: isFormDataBody
+      ? extraHeaders
+      : { 'Content-Type': 'application/json', ...extraHeaders as Record<string, string> },
     ...rest,
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `HTTP ${res.status}`);
+    const message = isRecord(body) && typeof body.error === 'string' ? body.error : `HTTP ${res.status}`;
+    const code = isRecord(body) && typeof body.code === 'string' ? body.code : undefined;
+    throw new ApiError(message, res.status, code);
   }
   return res.json();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export function fetchTasks() {
@@ -109,6 +137,62 @@ export function fetchSkillContent(id: string) {
   return request<{ skill: SkillMeta; content: string }>(`/skills/${encodeURIComponent(id)}/content`);
 }
 
+export function listFiles(path = '~/.minions/workspace') {
+  return request<FileListResponse>(`/files/list?path=${encodeURIComponent(path)}`);
+}
+
+export function readFile(path: string) {
+  return request<FileReadResponse>(`/files/read?path=${encodeURIComponent(path)}`);
+}
+
+export function fileDownloadUrl(path: string) {
+  return `${BASE}/files/download?path=${encodeURIComponent(path)}`;
+}
+
+export function writeFile(path: string, content: string, expectedModifiedAt?: number, overwrite = false) {
+  return request<FileWriteResponse>('/files/write', {
+    method: 'PUT',
+    body: JSON.stringify({ path, content, expectedModifiedAt, overwrite }),
+  });
+}
+
+export function createFileEntry(parentPath: string, name: string, type: FileCreateType, content?: string) {
+  return request<FileCreateResponse>('/files/create', {
+    method: 'POST',
+    body: JSON.stringify({ parentPath, name, type, content }),
+  });
+}
+
+export function renameFileEntry(path: string, newName: string) {
+  return request<FileRenameResponse>('/files/rename', {
+    method: 'PATCH',
+    body: JSON.stringify({ path, newName }),
+  });
+}
+
+export function uploadFileEntries(parentPath: string, files: File[]) {
+  const formData = new FormData();
+  formData.append('targetPath', parentPath);
+
+  for (const file of files) {
+    const relativePath = fileRelativePath(file);
+    formData.append('files', file, file.name);
+    formData.append('relativePaths', relativePath);
+  }
+
+  return request<FileUploadResponse>('/files/upload', {
+    method: 'POST',
+    body: formData,
+  });
+}
+
+export function deleteFileEntry(path: string, recursive = false) {
+  return request<FileDeleteResponse>('/files', {
+    method: 'DELETE',
+    body: JSON.stringify({ path, recursive }),
+  });
+}
+
 export function fetchCronRuns(jobId: string, limit = 20) {
   return request<{ runs: CronRun[] }>(`/cron/jobs/${encodeURIComponent(jobId)}/runs?limit=${limit}`);
 }
@@ -155,4 +239,9 @@ export function updateHeartbeatSettings(settings: Partial<HeartbeatSettings>) {
     method: 'PATCH',
     body: JSON.stringify(settings),
   });
+}
+
+function fileRelativePath(file: File): string {
+  const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
+  return relativePath && relativePath.length > 0 ? relativePath : file.name;
 }

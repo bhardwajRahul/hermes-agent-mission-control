@@ -10,6 +10,9 @@ export function Header() {
 
   const isSettings = location.pathname === '/settings';
   const isNewTask = location.pathname === '/tasks/new';
+  const isCron = location.pathname === '/cron';
+  const isSkills = location.pathname === '/skills';
+  const isFiles = location.pathname === '/files';
 
   let title = 'Tasks';
   let showParent = false;
@@ -17,6 +20,12 @@ export function Header() {
 
   if (isSettings) {
     title = 'Settings';
+  } else if (isCron) {
+    title = 'Schedules';
+  } else if (isSkills) {
+    title = 'Skills';
+  } else if (isFiles) {
+    title = 'Files';
   } else if (isNewTask) {
     title = 'New Task';
     showParent = true;

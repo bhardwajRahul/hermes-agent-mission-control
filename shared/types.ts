@@ -180,3 +180,61 @@ export interface CronRun {
   preview: string;
   content?: string;
 }
+
+export type FileEntryType = 'file' | 'directory' | 'symlink' | 'other';
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  displayPath: string;
+  type: FileEntryType;
+  hidden: boolean;
+  size: number | null;
+  modifiedAt: number | null;
+  readable: boolean;
+  writable: boolean;
+}
+
+export interface FileListResponse {
+  path: string;
+  displayPath: string;
+  parentPath: string | null;
+  entries: FileEntry[];
+}
+
+export interface FileReadResponse {
+  path: string;
+  displayPath: string;
+  name: string;
+  content: string;
+  size: number;
+  modifiedAt: number;
+  encoding: 'utf8';
+  fileType: 'text';
+}
+
+export interface FileWriteResponse {
+  path: string;
+  displayPath: string;
+  size: number;
+  modifiedAt: number;
+}
+
+export type FileCreateType = 'file' | 'directory';
+
+export interface FileCreateResponse {
+  entry: FileEntry;
+}
+
+export interface FileRenameResponse {
+  entry: FileEntry;
+}
+
+export interface FileDeleteResponse {
+  ok: true;
+}
+
+export interface FileUploadResponse {
+  uploaded: number;
+  entries: FileEntry[];
+}

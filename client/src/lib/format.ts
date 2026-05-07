@@ -14,6 +14,21 @@ export function toErrorMessage(error: unknown, fallback = 'Something went wrong'
   return error instanceof Error ? error.message : fallback;
 }
 
+export function formatBytes(value: number | null): string {
+  if (value == null) return '-';
+  if (value < 1024) return `${value} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let size = value / 1024;
+  let unitIndex = 0;
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${size >= 10 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`;
+}
+
 export function timeAgo(ms: number): string {
   const seconds = Math.floor((Date.now() - ms) / 1000);
   if (seconds < 60) return 'just now';
