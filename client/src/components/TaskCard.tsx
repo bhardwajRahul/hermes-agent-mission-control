@@ -46,6 +46,11 @@ export function TaskCard({ task }: { task: Task }) {
     ));
   }, []);
 
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
   const stopPropagation = useCallback((e: { stopPropagation(): void }) => {
     e.stopPropagation();
   }, []);
@@ -54,6 +59,7 @@ export function TaskCard({ task }: { task: Task }) {
     <>
       <div
         ref={setNodeRef}
+        onContextMenu={handleContextMenu}
         className={`group/card relative rounded-lg bg-white dark:bg-zinc-900 border cursor-grab active:cursor-grabbing select-none transition-[opacity,box-shadow,border-color] duration-150 ${
           isDragging
             ? 'opacity-30 border-dashed border-zinc-300 dark:border-zinc-600 shadow-none'
