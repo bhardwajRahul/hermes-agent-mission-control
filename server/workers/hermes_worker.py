@@ -260,6 +260,41 @@ def _default_reasoning(cfg: dict[str, Any]) -> str | None:
     return _normalize_reasoning(raw) or "medium"
 
 
+def _set_defaults(request: dict[str, Any]) -> dict[str, Any]:
+    global _CONFIG_CACHE
+    _ensure_imports()
+    from hermes_cli.config import load_config as _load_full_config, save_config
+
+    cfg = _load_full_config()
+
+    if not isinstance(cfg.get("model"), dict):
+        cfg["model"] = {}
+
+    if "model" in request:
+        raw_model = request["model"]
+        if isinstance(raw_model, str) and raw_model.strip():
+            model_val = raw_model.strip()
+            if model_val.startswith("@") and ":" in model_val:
+                provider_hint, bare_model = model_val[1:].split(":", 1)
+                cfg["model"]["default"] = bare_model
+                cfg["model"]["provider"] = provider_hint
+            else:
+                cfg["model"]["default"] = model_val
+                cfg["model"].pop("provider", None)
+
+    if "reasoningEffort" in request:
+        normalized = _normalize_reasoning(request["reasoningEffort"])
+        if normalized:
+            if not isinstance(cfg.get("agent"), dict):
+                cfg["agent"] = {}
+            cfg["agent"]["reasoning_effort"] = normalized
+
+    save_config(cfg)
+    _CONFIG_CACHE = None
+
+    return _defaults_from_config(cfg)
+
+
 def _defaults_from_config(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     cfg = cfg if cfg is not None else _load_config()
     model_cfg = _model_section(cfg)
@@ -1389,6 +1424,8 @@ def _handle_request(request: dict[str, Any]) -> None:
             })
         elif request_type == "settings.get":
             _result(request_id, _defaults_from_config())
+        elif request_type == "settings.set":
+            _result(request_id, _set_defaults(request))
         elif request_type == "models.list":
             _result(request_id, _list_models())
         elif request_type == "cron.jobs.list":

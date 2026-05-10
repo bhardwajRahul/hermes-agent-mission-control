@@ -9,7 +9,7 @@ export function NewTaskPage() {
   const navigate = useNavigate();
   const [input, setInput] = useState('');
   const [isCreating, setIsCreating] = useState(false);
-  const { defaults, modelGroups, model, setModel, reasoningEffort, setReasoningEffort } = useAgentConfig();
+  const { defaults, modelGroups, model, setModel, reasoningEffort, setReasoningEffort, isLoading } = useAgentConfig();
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -26,7 +26,7 @@ export function NewTaskPage() {
 
   const handleSubmit = useCallback(async () => {
     const text = input.trim();
-    if (!text || isCreating) return;
+    if (!text || isCreating || (!defaults && isLoading)) return;
     setIsCreating(true);
     try {
       const { task } = await createTask(text);
@@ -39,7 +39,7 @@ export function NewTaskPage() {
     } catch {
       setIsCreating(false);
     }
-  }, [input, isCreating, model, navigate, reasoningEffort]);
+  }, [defaults, input, isCreating, isLoading, model, navigate, reasoningEffort]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -80,7 +80,7 @@ export function NewTaskPage() {
             />
             <button
               onClick={handleSubmit}
-              disabled={!input.trim() || isCreating}
+              disabled={!input.trim() || isCreating || (!defaults && isLoading)}
               className="p-2.5 rounded-full bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 disabled:opacity-30 hover:bg-zinc-700 dark:hover:bg-zinc-300 transition-colors"
             >
               {isCreating ? (

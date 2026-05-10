@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { getTask } from '../db/queries.js';
-import { toErrorMessage } from '../errors.js';
+import { isRecord, toErrorMessage } from '../errors.js';
 import { taskRunSettings } from '../agent-settings.js';
-import type { AgentDefaults, Task, TaskAgentSettings } from '../../shared/types.js';
+import { REASONING_EFFORTS } from '../../shared/types.js';
+import type { AgentDefaults, Task, TaskAgentSettings, ReasoningEffort } from '../../shared/types.js';
 import type { HermesWorkerAdapter } from '../adapters/hermes-worker.js';
 
 const FALLBACK_DEFAULTS: AgentDefaults = {
@@ -46,6 +47,37 @@ export function createAgentRouter(adapter: HermesWorkerAdapter): Router {
       res.json(await adapter.getDefaults());
     } catch (error) {
       res.status(503).json({ error: toErrorMessage(error, 'Hermes worker unavailable') });
+    }
+  });
+
+  router.patch('/defaults', async (req, res) => {
+    if (!isRecord(req.body)) {
+      return res.status(400).json({ error: 'Request body is required' });
+    }
+
+    const updates: { model?: string | null; reasoningEffort?: string | null } = {};
+
+    if ('model' in req.body) {
+      const model = req.body.model;
+      if (model !== null && typeof model !== 'string') {
+        return res.status(400).json({ error: 'model must be a string or null' });
+      }
+      updates.model = typeof model === 'string' ? model.trim() || null : null;
+    }
+
+    if ('reasoningEffort' in req.body) {
+      const effort = req.body.reasoningEffort;
+      if (effort !== null && (typeof effort !== 'string' || !(REASONING_EFFORTS as readonly string[]).includes(effort))) {
+        return res.status(400).json({ error: `reasoningEffort must be one of: ${REASONING_EFFORTS.join(', ')}` });
+      }
+      updates.reasoningEffort = effort as ReasoningEffort | null;
+    }
+
+    try {
+      const defaults = await adapter.setDefaults(updates);
+      res.json(defaults);
+    } catch (error) {
+      res.status(503).json({ error: toErrorMessage(error, 'Failed to update defaults') });
     }
   });
 

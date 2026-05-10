@@ -79,7 +79,7 @@ export function ContextRing({ usage }: { usage: UsageStats }) {
   );
 }
 
-const REASONING_LABELS: Record<ReasoningEffort, string> = {
+export const REASONING_LABELS: Record<ReasoningEffort, string> = {
   none: 'None',
   minimal: 'Minimal',
   low: 'Low',
@@ -397,12 +397,13 @@ interface ModelPickerGroup {
   models: ModelPickerItem[];
 }
 
-interface ModelPickerProps {
+export interface ModelPickerProps {
   value: string;
   defaultModel: string | null;
   modelGroups: AgentModelGroup[];
   disabled?: boolean;
   title: string;
+  showInheritOption?: boolean;
   onChange: (value: string) => void;
 }
 
@@ -458,12 +459,13 @@ function findInitialModelGroupId(groups: ModelPickerGroup[], value: string): str
   );
 }
 
-function ModelPicker({
+export function ModelPicker({
   value,
   defaultModel,
   modelGroups,
   disabled = false,
   title,
+  showInheritOption = true,
   onChange,
 }: ModelPickerProps) {
   const [open, setOpen] = useState(false);
@@ -533,7 +535,7 @@ function ModelPicker({
       .filter((model): model is ModelPickerItem => Boolean(model));
 
     return [
-      defaultGroup,
+      ...(showInheritOption ? [defaultGroup] : []),
       ...(recentModels.length > 0 ? [{
         id: MODEL_PICKER_RECENT_GROUP_ID,
         label: 'Recent',
@@ -542,7 +544,7 @@ function ModelPicker({
       }] : []),
       ...providerGroups,
     ];
-  }, [defaultModel, modelGroups, recentModelIds, selectedModelMissing, value]);
+  }, [defaultModel, modelGroups, recentModelIds, selectedModelMissing, showInheritOption, value]);
 
   const modelLookup = useMemo(() => {
     const map = new Map<string, ModelPickerItem>();
@@ -589,7 +591,12 @@ function ModelPicker({
   );
   const visibleModels = useMemo(() => activeGroup?.models ?? [], [activeGroup]);
   const selectedModel = modelLookup.get(value);
-  const selectedLabel = selectedModel?.label ?? (value || (defaultModel ? `Inherit: ${defaultModel}` : 'Inherit default'));
+  const selectedLabel = (() => {
+    if (selectedModel?.label) return selectedModel.label;
+    if (value) return value;
+    if (!showInheritOption) return 'Select model';
+    return defaultModel ? `Inherit: ${defaultModel}` : 'Inherit default';
+  })();
 
   const updatePosition = useCallback(() => {
     const trigger = triggerRef.current;
@@ -906,6 +913,26 @@ function hasModel(groups: AgentModelGroup[] | undefined, model: string | null): 
   return Boolean(groups?.some((group) => group.models.some((option) => option.id === model)));
 }
 
+function LoadingToolbarButton({
+  icon: Icon,
+  className = '',
+}: {
+  icon: LucideIcon;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      disabled
+      className={`inline-flex h-9 max-w-full items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2.5 text-xs font-medium text-zinc-400 shadow-sm disabled:cursor-not-allowed dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-500 ${className}`}
+    >
+      <Icon size={12} className="shrink-0" />
+      <span className="h-3 animate-pulse rounded bg-zinc-200 dark:bg-zinc-700" />
+      <ChevronDown size={13} className="shrink-0 text-zinc-300 dark:text-zinc-600" />
+    </button>
+  );
+}
+
 export function InputToolbar({
   model,
   reasoningEffort,
@@ -928,6 +955,15 @@ export function InputToolbar({
       label: REASONING_LABELS[effort],
     })),
   ], [defaultReasoning]);
+
+  if (!defaults) {
+    return (
+      <div className="flex items-center gap-2 min-w-0 flex-wrap">
+        <LoadingToolbarButton icon={Sparkles} className="[&>span]:w-24" />
+        <LoadingToolbarButton icon={Zap} className="[&>span]:w-14" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-2 min-w-0 flex-wrap">

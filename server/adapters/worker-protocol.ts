@@ -12,6 +12,7 @@ import type { AgentRunSettings } from './types.js';
 export type WorkerRequest =
   | { id: string; type: 'health' }
   | { id: string; type: 'settings.get' }
+  | { id: string; type: 'settings.set'; model?: string | null; reasoningEffort?: string | null }
   | { id: string; type: 'models.list' }
   | { id: string; type: 'cron.jobs.list'; includeDisabled?: boolean }
   | { id: string; type: 'cron.jobs.get'; jobId: string }

@@ -103,10 +103,13 @@ export function TaskChat({ taskId, initialMessage, initialSettings }: TaskChatPr
   if (startupRef.current.taskId !== taskId) {
     startupRef.current = { taskId, initialMessage, initialSettings };
   }
-  const { defaults, modelGroups, model, setModel, reasoningEffort, setReasoningEffort } = useAgentConfig(
+  const { defaults, modelGroups, model, setModel, reasoningEffort, setReasoningEffort, isLoading } = useAgentConfig(
     taskId,
     startupRef.current.initialSettings,
   );
+  const waitingForTaskSettings = isLoading && !startupRef.current.initialSettings;
+  const toolbarDefaults = waitingForTaskSettings ? null : defaults;
+  const configPending = waitingForTaskSettings || (!defaults && isLoading);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -133,10 +136,10 @@ export function TaskChat({ taskId, initialMessage, initialSettings }: TaskChatPr
 
   const handleSubmit = useCallback(async () => {
     const text = input.trim();
-    if (!text || isStreaming) return;
+    if (!text || isStreaming || configPending) return;
     setInput('');
     await sendMessage(taskId, text, { model, reasoningEffort });
-  }, [input, isStreaming, taskId, sendMessage, model, reasoningEffort]);
+  }, [configPending, input, isStreaming, taskId, sendMessage, model, reasoningEffort]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -230,7 +233,7 @@ export function TaskChat({ taskId, initialMessage, initialSettings }: TaskChatPr
             <InputToolbar
               model={model}
               reasoningEffort={reasoningEffort}
-              defaults={defaults}
+              defaults={toolbarDefaults}
               modelGroups={modelGroups}
               disabled={isStreaming}
               onModelChange={setModel}
@@ -240,7 +243,7 @@ export function TaskChat({ taskId, initialMessage, initialSettings }: TaskChatPr
               {usage && <ContextRing usage={usage} />}
               <button
                 onClick={handleSubmit}
-                disabled={!input.trim() || isStreaming}
+                disabled={!input.trim() || isStreaming || configPending}
                 className="p-2 rounded-full bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 disabled:opacity-30 hover:bg-zinc-700 dark:hover:bg-zinc-300 transition-colors"
               >
                 <ArrowUp size={14} />
