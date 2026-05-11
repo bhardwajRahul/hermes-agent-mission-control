@@ -34,6 +34,13 @@ export type WorkerRequest =
       settings: AgentRunSettings;
       taskId?: string;
       taskTitle?: string | null;
+    }
+  | {
+      id: string;
+      type: 'judge.completion';
+      taskTitle: string;
+      taskDescription?: string | null;
+      responseText: string;
     };
 
 export interface WorkerErrorPayload {
@@ -52,7 +59,8 @@ export type WorkerResult =
   | { content: string }
   | { executed: number }
   | { messages: TaskMessage[] }
-  | { session: SessionMetadata | null };
+  | { session: SessionMetadata | null }
+  | { done: boolean; reason: string };
 
 export type WorkerEvent =
   | { id: string; type: 'result'; data: WorkerResult }

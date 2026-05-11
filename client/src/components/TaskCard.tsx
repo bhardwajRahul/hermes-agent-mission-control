@@ -55,6 +55,7 @@ export function TaskCard({ task }: { task: Task }) {
     isDragging,
   } = useDraggable({ id: task.id, data: { task } });
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const isUnseen = hasUnseenAgentResponse(task);
 
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
@@ -85,7 +86,9 @@ export function TaskCard({ task }: { task: Task }) {
         className={`group/card relative rounded-lg bg-white dark:bg-zinc-900 border cursor-grab active:cursor-grabbing select-none transition-[opacity,box-shadow,border-color] duration-150 ${
           isDragging
             ? 'opacity-30 border-dashed border-zinc-300 dark:border-zinc-600 shadow-none'
-            : 'border-zinc-200 dark:border-zinc-800 shadow-sm hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700'
+            : isUnseen
+              ? 'border-zinc-400 dark:border-zinc-600 shadow-lg hover:shadow-xl hover:border-zinc-400 dark:hover:border-zinc-500'
+              : 'border-zinc-200 dark:border-zinc-800 shadow-sm hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700'
         }`}
       >
         <Link

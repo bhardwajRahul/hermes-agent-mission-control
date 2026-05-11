@@ -15,25 +15,4 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-CREATE INDEX IF NOT EXISTS idx_tasks_heartbeat ON tasks(status, last_agent_response_at);
 
-CREATE TABLE IF NOT EXISTS app_settings (
-  key         TEXT PRIMARY KEY,
-  value       TEXT NOT NULL,
-  updated_at  INTEGER NOT NULL
-);
-
-INSERT OR IGNORE INTO app_settings (key, value, updated_at)
-VALUES
-  ('heartbeat_interval_mins', '15', CAST(strftime('%s', 'now') AS INTEGER) * 1000),
-  ('heartbeat_idle_mins', '15', CAST(strftime('%s', 'now') AS INTEGER) * 1000);
-
-CREATE TABLE IF NOT EXISTS heartbeat_log (
-  id          TEXT PRIMARY KEY,
-  task_id     TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-  action      TEXT NOT NULL,
-  details     TEXT,
-  created_at  INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_heartbeat_task ON heartbeat_log(task_id, created_at);

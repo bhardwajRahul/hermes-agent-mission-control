@@ -28,8 +28,10 @@ export function Board() {
   const upsertTask = useStore((s) => s.upsertTask);
   const removeTask = useStore((s) => s.removeTask);
   const grouped = useMemo(() => {
-    const buckets: Record<TaskStatus, Task[]> = { in_progress: [], blocked: [], in_review: [], done: [] };
-    for (const t of tasks) buckets[t.status].push(t);
+    const buckets: Record<TaskStatus, Task[]> = { in_progress: [], in_review: [], done: [] };
+    for (const t of tasks) {
+      if (t.status in buckets) buckets[t.status].push(t);
+    }
     for (const s of TASK_STATUSES) buckets[s].sort((a, b) => b.updated_at - a.updated_at);
     return buckets;
   }, [tasks]);

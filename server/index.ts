@@ -4,8 +4,6 @@ import { once } from 'node:events';
 import { createServer } from 'node:http';
 import app, { adapter } from './app.js';
 import { mountFrontend, type FrontendCleanup } from './frontend.js';
-import { startHeartbeatScheduler, stopHeartbeatScheduler } from './heartbeat/scheduler.js';
-import { getHeartbeatSettings } from './db/queries.js';
 import { ensureBundledSkillsLinked } from './skills/catalog.js';
 
 const PORT = parseInt(process.env.PORT || '6969', 10);
@@ -24,9 +22,6 @@ async function main() {
   await once(httpServer, 'listening');
 
   console.log(`Hermes Agent Mission Control running on http://localhost:${PORT}`);
-  const heartbeatSettings = getHeartbeatSettings();
-  console.log(`Heartbeat interval: ${heartbeatSettings.intervalMinutes}m`);
-  startHeartbeatScheduler(adapter);
 }
 
 function closeHttpServer(): Promise<void> {
@@ -51,8 +46,6 @@ async function shutdown(reason: ShutdownReason, exitCode = 0): Promise<void> {
     process.exit(1);
   }
   shuttingDown = true;
-
-  stopHeartbeatScheduler();
 
   const forceExit = setTimeout(() => {
     console.error(`Forced shutdown after ${reason}`);

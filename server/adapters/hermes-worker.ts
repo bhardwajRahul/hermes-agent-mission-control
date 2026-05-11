@@ -581,4 +581,17 @@ export class HermesWorkerAdapter implements AgentAdapter {
     const result = await this.client.request<{ executed: number }>({ type: 'cron.tick' });
     return result.executed;
   }
+
+  async judgeCompletion(
+    taskTitle: string,
+    taskDescription: string | null,
+    responseText: string,
+  ): Promise<{ done: boolean; reason: string }> {
+    return await this.client.request<{ done: boolean; reason: string }>({
+      type: 'judge.completion',
+      taskTitle,
+      taskDescription,
+      responseText,
+    });
+  }
 }

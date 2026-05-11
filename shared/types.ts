@@ -1,4 +1,4 @@
-export const TASK_STATUSES = ['in_progress', 'blocked', 'in_review', 'done'] as const;
+export const TASK_STATUSES = ['in_progress', 'in_review', 'done'] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export const REASONING_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const;
@@ -56,32 +56,6 @@ export interface LiveChatRun {
   messages: LiveChatMessage[];
   usage?: UsageStats;
   error?: string;
-}
-
-export interface HeartbeatLogEntry {
-  id: string;
-  task_id: string;
-  action: 'check' | 'move_blocked' | 'move_in_review';
-  details: string | null;
-  created_at: number;
-}
-
-export interface HeartbeatSettings {
-  intervalMinutes: number;
-  idleMinutes: number;
-}
-
-export const DEFAULT_HEARTBEAT_SETTINGS: HeartbeatSettings = {
-  intervalMinutes: 15,
-  idleMinutes: 15,
-};
-export const MIN_HEARTBEAT_MINUTES = 1;
-export const MAX_HEARTBEAT_MINUTES = 24 * 60;
-
-export interface StatusReport {
-  status: 'progressing' | 'completed' | 'blocked';
-  summary: string;
-  user_summary: string | null;
 }
 
 export interface UsageStats {

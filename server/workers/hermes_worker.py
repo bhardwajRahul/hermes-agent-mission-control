@@ -8,10 +8,12 @@ import dataclasses
 import inspect
 import json
 import os
+import re
 import sys
 import threading
 import time
 import traceback
+import uuid
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import datetime
 from pathlib import Path
@@ -20,8 +22,7 @@ from typing import Any
 PROTOCOL_OUT = sys.stdout
 PROTOCOL_LOCK = threading.Lock()
 
-# This is the actual worker-side cap on concurrent AIAgent.run_conversation calls.
-# Node reads the same env var to keep heartbeat below total worker capacity.
+# Cap on concurrent AIAgent.run_conversation calls (chat + judge).
 AGENT_RUN_LIMIT = int(os.environ.get("HERMES_AGENT_RUN_LIMIT", "10"))
 AGENT_SEMAPHORE = threading.BoundedSemaphore(AGENT_RUN_LIMIT)
 ACTIVE_TASKS: dict[str, str] = {}
@@ -869,10 +870,6 @@ def _project_session_messages(session_id: Any, task_id: Any = None) -> dict[str,
         content = _content_to_text(row.get("content"))
         if role == "user":
             content = _strip_minions_user_scaffold(content)
-        if role == "user" and content.startswith("[AUTOMATED CHECK-IN]"):
-            continue
-        if role == "assistant" and "<status_report>" in content and "</status_report>" in content:
-            continue
         if role == "assistant" and not content.strip() and row.get("tool_calls"):
             continue
         if not content.strip():
@@ -1458,6 +1455,90 @@ def _run_chat_thread(request_id: str, request: dict[str, Any], task_key: str) ->
         _clear_task_active(task_key, request_id)
 
 
+def _judge_completion(request: dict[str, Any]) -> dict[str, Any]:
+    """Evaluate whether the agent's response indicates task completion."""
+    task_title = _string_or_none(request.get("taskTitle")) or ""
+    task_description = _string_or_none(request.get("taskDescription")) or ""
+    response_text = _string_or_none(request.get("responseText")) or ""
+
+    if not response_text.strip():
+        return {"done": False, "reason": "empty response"}
+
+    max_chars = 4000
+    if len(response_text) > max_chars:
+        response_text = response_text[:max_chars] + "..."
+
+    task_context = task_title
+    if task_description:
+        task_context += f"\n{task_description}"
+
+    judge_system = (
+        "You are a task completion judge. "
+        "Respond ONLY with a JSON object, nothing else. "
+        "Do not use any tools."
+    )
+
+    judge_prompt = (
+        f"Task:\n{task_context}\n\n"
+        f"Agent's most recent response:\n{response_text}\n\n"
+        'Has the agent completed the task? Respond with: {"done": true/false, "reason": "one sentence"}\n'
+        "- done=true ONLY when the response clearly delivers the final result or confirms completion\n"
+        "- done=false for: questions, partial progress, clarification requests, errors, or ongoing work"
+    )
+
+    session_id = f"minions-judge-{uuid.uuid4().hex[:8]}"
+
+    agent = _create_agent(
+        session_id=session_id,
+        requested_model=None,
+        reasoning_effort="none",
+    )
+
+    result = agent.run_conversation(
+        user_message=judge_prompt,
+        system_message=judge_system,
+        conversation_history=[],
+    )
+
+    text = str(result.get("final_response") or "")
+    json_match = re.search(r"\{[^{}]*\}", text)
+    if json_match:
+        try:
+            parsed = json.loads(json_match.group())
+            return {
+                "done": bool(parsed.get("done", False)),
+                "reason": str(parsed.get("reason", "")),
+            }
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    return {"done": False, "reason": "unparseable response"}
+
+
+def _run_judge_thread(request_id: str, request: dict[str, Any]) -> None:
+    acquired = False
+    try:
+        AGENT_SEMAPHORE.acquire()
+        acquired = True
+        result_data = _judge_completion(request)
+        _result(request_id, result_data)
+    except Exception as exc:
+        _send_error(request_id, exc)
+    finally:
+        if acquired:
+            AGENT_SEMAPHORE.release()
+
+
+def _submit_judge_request(request_id: str, request: dict[str, Any]) -> None:
+    thread = threading.Thread(
+        target=_run_judge_thread,
+        args=(request_id, request),
+        daemon=True,
+        name=f"judge-{request_id[:8]}",
+    )
+    thread.start()
+
+
 def _submit_chat_request(request_id: str, request: dict[str, Any]) -> None:
     task_key = _task_key_for(request)
     if not _try_mark_task_active(task_key, request_id):
@@ -1528,6 +1609,8 @@ def _handle_request(request: dict[str, Any]) -> None:
             _result(request_id, _project_session_metadata(request.get("sessionId")))
         elif request_type == "chat":
             _submit_chat_request(request_id, request)
+        elif request_type == "judge.completion":
+            _submit_judge_request(request_id, request)
         else:
             raise WorkerError(f"Unknown request type: {request_type}", code="bad_request")
     except Exception as exc:

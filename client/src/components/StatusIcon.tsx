@@ -9,13 +9,6 @@ export function StatusIcon({ status }: { status: TaskStatus }) {
           <path d="M7 1.5a5.5 5.5 0 0 1 0 11V1.5z" fill="#f59e0b" />
         </svg>
       );
-    case 'blocked':
-      return (
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-          <circle cx="7" cy="7" r="5.5" stroke="#ef4444" strokeWidth="1.5" />
-          <circle cx="7" cy="7" r="2.5" fill="#ef4444" />
-        </svg>
-      );
     case 'in_review':
       return (
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">

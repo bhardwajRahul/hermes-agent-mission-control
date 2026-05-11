@@ -1,19 +1,16 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
-import { MoreHorizontal, Trash2, Loader2, MessageSquare, Activity, Pencil } from 'lucide-react';
+import { MoreHorizontal, Trash2, Loader2, Pencil } from 'lucide-react';
 import { DeleteConfirmModal } from './DeleteConfirmModal';
 import { StatusIcon } from './StatusIcon';
 import { useStore, optimisticMoveTask } from '../lib/store';
-import { deleteTask, patchTask, moveTask, fetchHeartbeatLogs, markTaskViewed } from '../lib/api';
+import { deleteTask, patchTask, moveTask, markTaskViewed } from '../lib/api';
 import { TASK_STATUSES } from '@shared/types';
 import { STATUS_META } from '../lib/constants';
 import { timeAgo } from '../lib/format';
 import { TaskChat } from './TaskChat';
-import { TaskActivity } from './TaskActivity';
 import type { AgentRunSettings } from '../lib/api';
-import type { HeartbeatLogEntry, TaskStatus } from '@shared/types';
-
-type Tab = 'chat' | 'activity';
+import type { TaskStatus } from '@shared/types';
 
 const DETAIL_COLUMN_CLASS = 'max-w-[808px] w-full mx-auto';
 
@@ -32,9 +29,6 @@ export function TaskDetailPage() {
   const [titleDraft, setTitleDraft] = useState('');
   const titleInputRef = useRef<HTMLInputElement>(null);
   const skipNextTitleSaveRef = useRef(false);
-  const [activeTab, setActiveTab] = useState<Tab>('chat');
-  const [heartbeatLogs, setHeartbeatLogs] = useState<HeartbeatLogEntry[]>([]);
-  const hasActivity = heartbeatLogs.length > 0;
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -63,19 +57,10 @@ export function TaskDetailPage() {
   }, [task?.id, task?.last_agent_response_at, task?.last_viewed_at, upsertTask]);
 
   useEffect(() => {
-    setActiveTab('chat');
-    setHeartbeatLogs([]);
-    let cancelled = false;
-    if (taskId) {
-      fetchHeartbeatLogs(taskId, 1)
-        .then(({ logs }) => { if (!cancelled) setHeartbeatLogs(logs); })
-        .catch(() => {});
-    }
     if (initialMessage || initialSettings) {
       navigate(location.pathname, { replace: true, state: {} });
     }
-    return () => { cancelled = true; };
-  }, [taskId]);
+  }, [taskId, initialMessage, initialSettings, navigate, location.pathname]);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -247,41 +232,8 @@ export function TaskDetailPage() {
         </div>
       </div>
 
-      {hasActivity && (
-        <div className={`${DETAIL_COLUMN_CLASS} px-4 sm:px-6`}>
-          <div className="flex border-b border-zinc-200 dark:border-zinc-800">
-            <button
-              onClick={() => setActiveTab('chat')}
-              className={`mr-7 inline-flex items-center gap-1.5 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === 'chat'
-                  ? 'border-zinc-900 dark:border-zinc-100 text-zinc-900 dark:text-zinc-100'
-                  : 'border-transparent text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300'
-              }`}
-            >
-              <MessageSquare size={14} />
-              Chat
-            </button>
-            <button
-              onClick={() => setActiveTab('activity')}
-              className={`inline-flex items-center gap-1.5 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === 'activity'
-                  ? 'border-zinc-900 dark:border-zinc-100 text-zinc-900 dark:text-zinc-100'
-                  : 'border-transparent text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300'
-              }`}
-            >
-              <Activity size={14} />
-              Activity
-            </button>
-          </div>
-        </div>
-      )}
-
       <div className="w-full flex-1 flex flex-col min-h-0">
-        {activeTab === 'chat' || !hasActivity ? (
-          <TaskChat taskId={task.id} initialMessage={initialMessage} initialSettings={initialSettings} />
-        ) : (
-          <TaskActivity taskId={task.id} />
-        )}
+        <TaskChat taskId={task.id} initialMessage={initialMessage} initialSettings={initialSettings} />
       </div>
 
       {showDeleteConfirm && (

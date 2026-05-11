@@ -17,7 +17,6 @@ import type {
   TaskAgentSettings,
   TaskMessage,
   TaskStatus,
-  HeartbeatSettings,
   ReasoningEffort,
   UsageStats,
 } from '@shared/types';
@@ -238,21 +237,6 @@ export function runCronJob(jobId: string) {
 export function deleteCronJob(jobId: string) {
   return request<{ ok: boolean }>(`/cron/jobs/${encodeURIComponent(jobId)}`, {
     method: 'DELETE',
-  });
-}
-
-export function fetchHeartbeatLogs(taskId: string, limit = 50) {
-  return request<{ logs: import('@shared/types').HeartbeatLogEntry[] }>(`/heartbeat/log?task_id=${taskId}&limit=${limit}`);
-}
-
-export function fetchHeartbeatSettings() {
-  return request<{ settings: HeartbeatSettings }>('/heartbeat/settings');
-}
-
-export function updateHeartbeatSettings(settings: Partial<HeartbeatSettings>) {
-  return request<{ settings: HeartbeatSettings }>('/heartbeat/settings', {
-    method: 'PATCH',
-    body: JSON.stringify(settings),
   });
 }
 

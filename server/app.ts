@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import { tasksRouter } from './routes/tasks.js';
 import { chatRouter } from './routes/chat.js';
-import { createHeartbeatRouter } from './routes/heartbeat.js';
 import { createAgentRouter, createTaskAgentSettingsRouter } from './routes/agent.js';
 import { createCronRouter, createTaskCronRouter } from './routes/cron.js';
 import { skillsRouter } from './routes/skills.js';
@@ -33,7 +32,6 @@ app.use('/api/tasks', createTaskAgentSettingsRouter(adapter));
 app.use('/api/tasks', chatRouter);
 app.use('/api/agent', createAgentRouter(adapter));
 app.use('/api/cron', createCronRouter(adapter));
-app.use('/api/heartbeat', createHeartbeatRouter(adapter));
 app.use('/api/skills', skillsRouter);
 app.use('/api/files', filesRouter);
 

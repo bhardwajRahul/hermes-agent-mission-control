@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Minions is an autonomous task management system with a Kanban board UI. Users create tasks via a chat interface; each task is a Hermes agent session that autonomously decides how to execute — doing the work itself, spawning child sessions, or creating cron jobs. A periodic heartbeat checks in on in-progress tasks, prompting them to self-report status. The user never talks to child sessions or cron jobs directly; the task agent manages its own sub-resources.
+Minions is an autonomous task management system with a Kanban board UI. Users create tasks via a chat interface; each task is a Hermes agent session that autonomously decides how to execute — doing the work itself, spawning child sessions, or creating cron jobs. After each agent turn, a lightweight completion judge evaluates whether the task is done and moves it to review automatically. The user never talks to child sessions or cron jobs directly; the task agent manages its own sub-resources.
 
 ## Prerequisites
 
@@ -59,57 +59,55 @@ All persistent state lives under `MINIONS_HOME` (default: `~/.minions/`):
 |----------|--------|-----------|
 | Agent communication | Python subprocess + JSONL | Imports Hermes AIAgent directly — no HTTP gateway overhead, structured streaming events, per-task model/reasoning control |
 | Task execution | Autonomous agent session | Each task IS a Hermes session. The agent decides execution strategy (self, child session, cron job). Our backend doesn't manage sub-resources. |
-| Heartbeat | DB-configured scheduler in Express (15 min default) | Sends check-in to task sessions. Agent reports status honestly; system updates task accordingly. |
-| Source of truth | Hermes SessionDB for chat history; Minions SQLite for task metadata; in-memory LiveChatRun for active streams | Hermes owns all transcripts and replay. Minions has no message table. `tasks.id` is the Hermes root session ID; Minions stores task metadata, per-task settings, heartbeat logs, and `last_agent_response_at` for heartbeat idle gating. During active streaming, `live-chat.ts` holds an in-memory `LiveChatRun` with accumulated messages. After streaming ends and the run TTL expires, chat history is projected from Hermes SessionDB on demand. |
-| Status ownership | AI moves to `blocked`/`in_review` via heartbeat; human moves everything else via drag-drop | Clean separation: AI reports status, human controls all manual transitions. |
+| Completion judge | Lightweight LLM call after each agent turn | After a chat stream completes, the server sends the response to a `judge.completion` worker request. A fast judge model evaluates whether the task looks done and auto-moves to `in_review`. No polling, no prompt pollution — the judge runs outside the conversation. |
+| Source of truth | Hermes SessionDB for chat history; Minions SQLite for task metadata; in-memory LiveChatRun for active streams | Hermes owns all transcripts and replay. Minions has no message table. `tasks.id` is the Hermes root session ID; Minions stores task metadata, per-task settings, and `last_agent_response_at`. During active streaming, `live-chat.ts` holds an in-memory `LiveChatRun` with accumulated messages. After streaming ends and the run TTL expires, chat history is projected from Hermes SessionDB on demand. |
+| Status ownership | Judge auto-moves to `in_review`; human moves everything else via drag-drop | Clean separation: judge evaluates completion, human controls all manual transitions. |
 
 ## Key Patterns
 
-- **Session lifecycle**: `tasks.id` is the Minions task ID and the Hermes root session ID. Chat, history, metadata reads, and heartbeat check-ins all use `task.id`; Minions does not persist Hermes-returned child or continuation session IDs.
-- **Chat projection**: `GET /tasks/:id/messages` loads raw rows from Hermes `SessionDB.get_messages()` via the Python worker, which filters out heartbeat check-ins (`[AUTOMATED CHECK-IN]`), status blocks (`<status_report>`), and tool-call-only turns. The client shows optimistic messages during streaming and loads the projected history from Hermes on page load/task switch.
+- **Session lifecycle**: `tasks.id` is the Minions task ID and the Hermes root session ID. Chat and history reads all use `task.id`; Minions does not persist Hermes-returned child or continuation session IDs.
+- **Chat projection**: `GET /tasks/:id/messages` loads raw rows from Hermes `SessionDB.get_messages()` via the Python worker, which filters out tool-call-only turns and empty messages. The client shows optimistic messages during streaming and loads the projected history from Hermes on page load/task switch.
+- **Completion judge**: After each successful chat stream, `consumeChatRun()` fires a `judge.completion` request to the Python worker with the task title, description, and the agent's accumulated response text (truncated to ~4KB). The judge creates a throwaway AIAgent with `reasoning_effort=none`, evaluates the response, and returns `{done, reason}`. If `done=true` and the task is still `in_progress`, the server auto-moves it to `in_review` and broadcasts the update. Judge failures are non-critical — the task stays as-is.
+- **Agent defaults**: Global default model/reasoning settings are stored in the Python worker via `settings.set` and surfaced through `GET /api/agent/defaults`. The Settings page lets users pick the default model (two-panel picker with search) and reasoning effort for all new tasks. Agent settings routes live in `server/routes/agent.ts`.
 - **Per-task model/reasoning**: Each task can override the default Hermes model and reasoning effort (`agent_model`, `reasoning_effort` columns on `tasks`). Settings logic lives in `server/agent-settings.ts`. The Python worker resolves the final model/provider from Hermes config + per-task overrides.
-- **Heartbeat status parsing**: Agent responses must contain a `<status_report>` / `</status_report>` block with JSON. Unparseable responses are logged but don't crash.
-- **Heartbeat visibility**: `summary` and optional `user_summary` are saved to `heartbeat_log` and shown only in the Activity tab. Heartbeat turns remain in Hermes session history for agent continuity, but the chat projection filters them out.
-- **Heartbeat eligibility**: Heartbeat checks `in_progress` tasks whose last activity (`last_agent_response_at`, falling back to `created_at`) is older than the DB-backed heartbeat idle-delay setting. The heartbeat interval and idle delay both default to 15 minutes and are editable from Settings. Background heartbeat stays below total Python worker capacity (`HERMES_AGENT_RUN_LIMIT`) so user chat always has at least one slot available, and skips tasks that already have an active agent run.
 - **Live chat**: `POST /api/tasks/:id/messages` returns `202` immediately with a `runId`. The server consumes the agent stream in the background via `consumeChatRun()` in `server/routes/chat.ts`. Clients subscribe to `GET /api/tasks/:id/live` SSE for real-time `text_delta`, `thinking_delta`, `tool_progress`, `done`, and `error` events. On connect, the client receives a snapshot of the current in-memory `LiveChatRun` if one exists. Runs are kept in memory briefly after completion (30s normal, 5min on error) so late-connecting clients can catch up.
 - **Live-chat state** (`server/live-chat.ts`): In-memory `Map<taskId, LiveChatRun>` accumulates streaming events into structured messages (user + assistant with tools/thinking/usage). This is ephemeral — on server restart, active run state is lost, but the Hermes session history remains in SessionDB.
 - **SSE board events**: `/api/events` broadcasts board-level events (task CRUD) to all clients. Separate from per-task live chat SSE.
 - **Disconnect resilience**: If the browser disconnects during a stream, the server continues draining the worker stream to completion. On successful completion, `last_agent_response_at` is recorded for the task.
 - **Cron jobs**: Hermes manages cron job state internally. Minions exposes endpoints to list, pause, resume, trigger, and remove jobs. Cron jobs link back to their originating task via `origin.platform === 'minions'`.
+- **File browser**: `server/routes/files.ts` exposes CRUD operations on the `MINIONS_HOME/workspace/` directory (list, read, write, create, rename, delete, upload via multer). The client's `FileBrowserPage` provides a full file manager UI.
+- **Skills catalog**: `server/skills/catalog.ts` discovers bundled skill definitions. Exposed via `server/routes/skills.ts` and rendered in the client's `SkillsPage`.
 - **Server imports**: Use `.js` extensions in import paths (ESM with tsx).
 
 ## Task State Machine
 
 ```
-                         user creates
-                              │
-                              ▼
-                      ┌──────────────┐
-           ┌─────────│  IN_PROGRESS  │◄────────────────┐
-           │         └───┬───────┬───┘                 │
-           │             │       │                     │
-           │       agent │       │ agent               │ human moves
-           │     reports │       │ reports             │ (drag-drop)
-           │    "blocked"│       │ "completed"          │
-           │             │       │                     │
-           │       ┌─────▼──┐  ┌─▼──────────┐          │
-           │       │BLOCKED │  │ IN_REVIEW   │          │
-           │       │ needs  │  │ human       │          │
-           │       │ human  │  │ verifies    │          │
-           │       │ input  │  │ the work    │          │
-           │       └───┬────┘  └──────┬──────┘          │
-           │           │              │                 │
-           │           │ human moves  │ human moves     │
-           │           └──────────────┴─────────────────┘
-           │
-           │         ┌──────────────┐
-           └────────►│    DONE      │
-             human   │ human        │
-             moves   │ verified     │
-                     └──────────────┘
+               user creates
+                    │
+                    ▼
+            ┌──────────────┐
+  ┌─────────│  IN_PROGRESS  │◄─────────┐
+  │         └───────┬───────┘          │
+  │                 │                  │
+  │     completion  │                  │ human moves
+  │         judge   │                  │ (drag-drop)
+  │      "done"     │                  │
+  │                 │                  │
+  │          ┌──────▼──────┐           │
+  │          │  IN_REVIEW   │          │
+  │          │  human       │          │
+  │          │  verifies    │──────────┘
+  │          └──────┬───────┘
+  │                 │
+  │                 │ human moves
+  │                 │
+  │          ┌──────▼──────┐
+  └─────────►│    DONE      │
+    human    │  verified    │
+    moves    └─────────────┘
 ```
 
-**AI moves to**: `blocked`, `in_review` (via heartbeat status reports)
+**Judge moves to**: `in_review` (via completion judge after each agent turn)
 **Human moves to**: `in_progress`, `done` (via drag-and-drop or action buttons)
 
 ## Data Flows
@@ -131,28 +129,27 @@ User creates task via UI
   → Run state expires from memory after TTL; history loads from Hermes on next page load
 ```
 
-### Heartbeat Check-In
+### Completion Judge
 
 ```
-Heartbeat scheduler fires (DB-configured, 15 minutes by default)
-  → Query: all tasks WHERE status = 'in_progress'
-      AND COALESCE(last_agent_response_at, created_at) <= now - configured idle delay
-  → For each task (batched by HEARTBEAT_CONCURRENCY, skipping busy tasks):
-      → Fetch last 3 heartbeat summaries for context
-      → Send check-in prompt to agent via adapter.chat(task.id, ...)
-      → Parse <status_report> JSON block
-      → Record last_agent_response_at for every successful heartbeat response
-      → IF progressing → stay in_progress (log summary)
-      → IF completed → move to 'in_review' (broadcast update)
-      → IF blocked → move to 'blocked' (broadcast update)
-      → Log summary + optional user_summary to heartbeat_log (visible only in Activity)
+Chat stream completes (done event in consumeChatRun)
+  → Accumulated response text available from stream
+  → Fire judgeTaskCompletion() (async, non-blocking)
+  → Send judge.completion request to Python worker with task title, description, response text
+  → Worker creates throwaway AIAgent with reasoning_effort=none
+  → Judge prompt asks: "given the task and response, is the task complete?"
+  → Returns {done: boolean, reason: string}
+  → IF done=true AND task.status === 'in_progress':
+      → Update task status to 'in_review'
+      → Broadcast task_updated event
+  → IF done=false or judge fails: task stays as-is
 ```
 
 ## Worker Protocol
 
 The Python worker communicates via JSONL (one JSON object per line) over stdin/stdout.
 
-**Request types**: `health`, `chat`, `session.messages.get`, `session.get`, `settings.get`, `models.list`, `cron.jobs.list`, `cron.jobs.get`, `cron.jobs.runs`, `cron.jobs.run.content`, `cron.jobs.pause`, `cron.jobs.resume`, `cron.jobs.run`, `cron.jobs.remove`, `cron.tick`
+**Request types**: `health`, `chat`, `judge.completion`, `session.messages.get`, `session.get`, `settings.get`, `settings.set`, `models.list`, `cron.jobs.list`, `cron.jobs.get`, `cron.jobs.runs`, `cron.jobs.run.content`, `cron.jobs.pause`, `cron.jobs.resume`, `cron.jobs.run`, `cron.jobs.remove`, `cron.tick`
 
 **Stream events** (emitted during `chat` requests):
 
@@ -170,11 +167,13 @@ The Python worker communicates via JSONL (one JSON object per line) over stdin/s
 
 | Path | Component | Description |
 |------|-----------|-------------|
-| `/` | `Board` | Kanban board (4 columns + drag-and-drop) |
+| `/` | `Board` | Kanban board (3 columns + drag-and-drop) |
 | `/tasks/new` | `NewTaskPage` | Create task + initial chat with agent |
 | `/tasks/:taskId` | `TaskDetailPage` | Task detail + chat thread |
 | `/cron` | `CronPage` | View and manage Hermes cron jobs |
-| `/settings` | `SettingsPage` | App settings including theme and heartbeat timing |
+| `/skills` | `SkillsPage` | Browse bundled skill definitions |
+| `/files` | `FileBrowserPage` | File manager for workspace directory |
+| `/settings` | `SettingsPage` | Theme, default model + reasoning effort |
 
 ## Environment Variables
 
@@ -184,13 +183,11 @@ All optional — defaults work for local development.
 PORT=6969                        # Web server port
 HERMES_PYTHON=                   # Path to Python with Hermes deps (auto-detected if unset)
 HERMES_AGENT_DIR=                # Path to Hermes agent dir (default: ~/.hermes/hermes-agent)
-HERMES_AGENT_RUN_LIMIT=10        # Max concurrent agent runs in Python worker
-HEARTBEAT_CONCURRENCY=2          # Max concurrent heartbeat checks (capped below AGENT_RUN_LIMIT)
+HERMES_AGENT_RUN_LIMIT=10        # Max concurrent agent runs in Python worker (chat + judge)
 MINIONS_HOME=~/.minions          # State directory (DB, logs, backups, workspace)
 DB_PATH=~/.minions/data/minions.db  # SQLite database path
+MINIONS_MODEL_LIST_CACHE_TTL_SECONDS=60  # Cache TTL for model list in Python worker
 ```
-
-Heartbeat interval and idle-delay settings are stored in `app_settings` and default to 15 minutes.
 
 ## Hermes Python Library
 

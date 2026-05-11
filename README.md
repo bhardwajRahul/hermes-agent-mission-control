@@ -20,25 +20,24 @@ Minions task dashboard
 
 The first agent task is fun. The tenth is operations.
 
-Power users do not just ask an agent one question. They delegate research, coding, monitoring, sales ops, writing, and recurring workflows. Those jobs take time. They get blocked. They need review. Cron runs disappear into the background. Context fills up.
+Power users do not just ask an agent one question. They delegate research, coding, monitoring, sales ops, writing, and recurring workflows. Those jobs take time. They need review. Cron runs disappear into the background. Context fills up.
 
 Minions turns Hermes sessions into durable, reviewable work.
 
 ## Not Just A Board
 
-Minions is not just a task board. Every in-progress task gets periodic heartbeat check-ins.
-
-During a heartbeat, the Hermes session is asked to make progress, retry with a different approach if stuck, and only ask for help after it has genuinely exhausted alternatives. If it needs you, the task moves to **Needs your help**. If it finishes, it moves to **Ready for review**.
+Minions is not just a task board. After each agent turn, a lightweight completion judge evaluates whether the task is done and auto-moves it to **Ready for review**. You verify and close — nothing moves to done without your sign-off.
 
 ## Features
 
-- **Kanban board**: see every task at a glance: in progress, blocked, in review, done
+- **Kanban board**: see every task at a glance: in progress, in review, done
 - **Autonomous execution**: describe what you want in chat, walk away; the agent decides how to get it done
-- **Heartbeat check-ins**: agents self-report progress on a schedule; blocked work surfaces automatically
+- **Completion judge**: after each agent turn, a lightweight LLM call evaluates whether the task is done
 - **Live streaming**: watch tool calls, reasoning, and responses in real time
 - **Human-in-the-loop**: agents propose completion; you verify and close. Nothing moves to done without your sign-off
 - **Per-task model control**: override model and reasoning effort on any task
 - **Cron visibility**: see every scheduled Hermes job, its history, and output
+- **File browser**: see files agents have created in the workspace directory
 - **Local-first option**: self-host with SQLite, no account, and no cloud dependency. Your local data stays on your machine
 
 ## Quick Start
@@ -66,7 +65,7 @@ Express server (:6969)
 Python worker → Hermes AIAgent
 ```
 
-Each task is a persistent Hermes root session. You talk to it, it works, it checks in, and the board reflects where everything stands. Chat transcripts live in Hermes's session database; Minions stores task metadata, status, heartbeat history, and per-task settings in a local SQLite database.
+Each task is a persistent Hermes root session. You talk to it, it works, and the board reflects where everything stands. Chat transcripts live in Hermes's session database; Minions stores task metadata, status, and per-task settings in a local SQLite database.
 
 ## Who It's For
 
@@ -77,9 +76,8 @@ Each task is a persistent Hermes root session. You talk to it, it works, it chec
 ## Roadmap
 
 - **Cron supervision**: automatically monitor, recover, and report on scheduled agent jobs
-- **Notifications**: get alerted via Telegram, WhatsApp, or webhook when a task is blocked or needs review
+- **Notifications**: get alerted via Telegram, WhatsApp, or webhook when a task needs review
 - **Skills library**: pluggable skill templates for common workflows (lead gen, web research, content pipelines, data collection, competitive monitoring, outbound sequences)
-- **Workspace file browser**: see files agents have created per task without SSH-ing in
 - **OpenClaw adapter**: run Minions against OpenClaw-hosted agents
 
 ## FAQ

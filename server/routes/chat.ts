@@ -56,9 +56,33 @@ chatRouter.get('/:id/session', async (req, res) => {
 const DONE_SNAPSHOT_TTL_MS = 30_000;
 const ERROR_SNAPSHOT_TTL_MS = 5 * 60_000;
 
+async function judgeTaskCompletion(task: Task, responseText: string, responseAt: number): Promise<void> {
+  if (!responseText.trim() || task.status !== 'in_progress') return;
+
+  try {
+    const result = await adapter.judgeCompletion(task.title, task.description, responseText);
+    if (result.done) {
+      const current = getTask(task.id);
+      if (
+        !current ||
+        current.status !== 'in_progress' ||
+        current.last_agent_response_at !== responseAt
+      ) {
+        return;
+      }
+
+      const updated = updateTask(task.id, { status: 'in_review' });
+      if (updated) broadcast({ type: 'task_updated', task: updated });
+    }
+  } catch {
+    // Judge failure is non-critical — leave task as-is
+  }
+}
+
 async function consumeChatRun(runTask: Task, sessionId: string, content: string, runId: string): Promise<void> {
   let sawDone = false;
   let doneUsage: UsageStats | undefined;
+  let responseText = '';
 
   try {
     const stream = adapter.chatStream(sessionId, content, {
@@ -68,6 +92,7 @@ async function consumeChatRun(runTask: Task, sessionId: string, content: string,
     });
 
     for await (const event of stream) {
+      if (event.type === 'text_delta' && responseText.length < 4200) responseText += event.content ?? '';
       if (event.type === 'done') {
         sawDone = true;
         doneUsage = event.usage;
@@ -90,8 +115,11 @@ async function consumeChatRun(runTask: Task, sessionId: string, content: string,
 
     const finishedRun = getRunStatus(runTask.id);
     if (sawDone && finishedRun?.status === 'done') {
-      const updated = recordAgentResponse(runTask.id, Date.now(), doneUsage ?? null);
+      const responseAt = Date.now();
+      const updated = recordAgentResponse(runTask.id, responseAt, doneUsage ?? null);
       if (updated) broadcast({ type: 'task_updated', task: updated });
+
+      void judgeTaskCompletion(runTask, responseText, responseAt);
     } else {
       touchTask(runTask.id);
     }

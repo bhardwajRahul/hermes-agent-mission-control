@@ -42,4 +42,10 @@ export interface AgentAdapter {
   getMessages(sessionId: string, taskId: string): Promise<TaskMessage[]>;
 
   getSessionMetadata(sessionId: string): Promise<SessionMetadata | null>;
+
+  judgeCompletion(
+    taskTitle: string,
+    taskDescription: string | null,
+    responseText: string,
+  ): Promise<{ done: boolean; reason: string }>;
 }
