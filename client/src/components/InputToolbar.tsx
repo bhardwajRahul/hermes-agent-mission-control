@@ -1,14 +1,14 @@
 import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Search, Sparkles, Zap, type LucideIcon } from 'lucide-react';
-import { REASONING_EFFORTS, type AgentDefaults, type AgentModelGroup, type ReasoningEffort, type UsageStats } from '@shared/types';
+import { REASONING_EFFORTS, type AgentDefaults, type AgentModelGroup, type ContextUsage, type ReasoningEffort } from '@shared/types';
 import { formatTokenCount } from '../lib/format';
 
-const MAX_CONTEXT = 128_000;
-
-export function ContextRing({ usage }: { usage: UsageStats }) {
-  const pct = Math.round((usage.input_tokens / MAX_CONTEXT) * 100);
-  const clampedPct = Math.min(pct, 100);
+export function ContextRing({ context }: { context: ContextUsage }) {
+  const pct = context.window_tokens > 0
+    ? Math.round((context.used_tokens / context.window_tokens) * 100)
+    : 0;
+  const clampedPct = Math.min(Math.max(pct, 0), 100);
 
   const size = 26;
   const strokeWidth = 2;
@@ -59,15 +59,13 @@ export function ContextRing({ usage }: { usage: UsageStats }) {
       <div className="absolute bottom-full right-0 mb-2.5 z-50 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity duration-150">
         <div className="w-56 p-3 rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-lg">
           <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 mb-1">
-            Last response
+            Context window
           </p>
           {exceeded && (
             <p className="text-xs text-red-500 mb-0.5">{pct}% used (exceeded)</p>
           )}
           <div className="space-y-0.5 text-xs text-zinc-500 dark:text-zinc-400 tabular-nums">
-            <p>Context: {formatTokenCount(usage.input_tokens)} / {formatTokenCount(MAX_CONTEXT)}</p>
-            <p>Output: {formatTokenCount(usage.output_tokens)}</p>
-            <p>Total: {formatTokenCount(usage.total_tokens)}</p>
+            <p>Context: {formatTokenCount(context.used_tokens)} / {formatTokenCount(context.window_tokens)}</p>
           </div>
         </div>
         <div className="absolute -bottom-[3px] right-[9px] w-1.5 h-1.5 bg-white dark:bg-zinc-800 border-r border-b border-zinc-200 dark:border-zinc-700 rotate-45" />

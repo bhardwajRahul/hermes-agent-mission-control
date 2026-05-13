@@ -1,6 +1,6 @@
-import type { AgentRunSettings, SessionMetadata, TaskMessage, UsageStats } from '../../shared/types.js';
+import type { AgentRunSettings, ContextUsage, SessionMetadata, TaskMessage } from '../../shared/types.js';
 
-export type { AgentRunSettings, UsageStats };
+export type { AgentRunSettings, ContextUsage };
 
 export interface AgentRunOptions {
   systemMessage?: string;
@@ -21,7 +21,7 @@ export interface StreamEvent {
   status?: 'running' | 'completed' | 'error';
   duration?: number;
   label?: string;
-  usage?: UsageStats;
+  context?: ContextUsage | null;
 }
 
 export interface AgentAdapter {

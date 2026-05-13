@@ -20,9 +20,8 @@ export interface Task {
   updated_at: number;
   last_agent_response_at: number | null;
   last_viewed_at: number | null;
-  last_usage_input_tokens: number | null;
-  last_usage_output_tokens: number | null;
-  last_usage_total_tokens: number | null;
+  last_context_used_tokens: number | null;
+  last_context_window_tokens: number | null;
 }
 
 export interface TaskMessage {
@@ -31,7 +30,6 @@ export interface TaskMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   thinking?: string;
-  usage?: UsageStats;
   created_at: number;
 }
 
@@ -69,14 +67,13 @@ export interface LiveChatRun {
   startedAt: number;
   updatedAt: number;
   messages: LiveChatMessage[];
-  usage?: UsageStats;
+  context?: ContextUsage | null;
   error?: string;
 }
 
-export interface UsageStats {
-  input_tokens: number;
-  output_tokens: number;
-  total_tokens: number;
+export interface ContextUsage {
+  used_tokens: number;
+  window_tokens: number;
 }
 
 export interface SessionMetadata {

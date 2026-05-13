@@ -883,7 +883,12 @@ def _project_session_messages(session_id: Any, task_id: Any = None) -> dict[str,
             "created_at": _timestamp_to_ms(row.get("timestamp")),
         }
         if role == "assistant":
-            thinking = _thinking_to_text(row.get("reasoning_content")) or _thinking_to_text(row.get("reasoning"))
+            thinking = (
+                _thinking_to_text(row.get("reasoning_content"))
+                or _thinking_to_text(row.get("reasoning"))
+                or _thinking_to_text(row.get("reasoning_details"))
+                or _thinking_to_text(row.get("codex_reasoning_items"))
+            )
             if thinking:
                 message["thinking"] = thinking
         projected.append(message)
@@ -1425,12 +1430,16 @@ def _run_chat(request_id: str, request: dict[str, Any]) -> None:
     if result.get("last_reasoning") and not state["thinking"]:
         _send({"id": request_id, "type": "thinking_delta", "content": str(result["last_reasoning"])})
 
-    usage = {
-        "input_tokens": int(result.get("input_tokens") or result.get("prompt_tokens") or 0),
-        "output_tokens": int(result.get("output_tokens") or result.get("completion_tokens") or 0),
-        "total_tokens": int(result.get("total_tokens") or 0),
-    }
-    _send({"id": request_id, "type": "done", "sessionId": getattr(agent, "session_id", None) or session_id, "usage": usage})
+    context_engine = getattr(agent, "context_compressor", None)
+    context_used = int(result.get("last_prompt_tokens") or 0)
+    context_window = int(getattr(context_engine, "context_length", 0) or 0)
+    context = None
+    if context_used > 0 and context_window > 0:
+        context = {
+            "used_tokens": context_used,
+            "window_tokens": context_window,
+        }
+    _send({"id": request_id, "type": "done", "sessionId": getattr(agent, "session_id", None) or session_id, "context": context})
 
 
 def _run_chat_thread(request_id: str, request: dict[str, Any], task_key: str) -> None:

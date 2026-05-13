@@ -1,16 +1,16 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type {
+  ContextUsage,
   LiveChatMessage,
   LiveChatRun,
   TaskMessage,
   ToolProgressEvent,
-  UsageStats,
 } from '@shared/types';
 import { fetchMessages, BASE } from '../lib/api';
 import { toErrorMessage } from '../lib/format';
 import type { AgentRunSettings } from '../lib/api';
 
-export type { ToolProgressEvent, UsageStats };
+export type { ContextUsage, ToolProgressEvent };
 
 type ChatMessage = Omit<TaskMessage, 'task_id'> & {
   task_id?: string;
@@ -28,7 +28,7 @@ type LiveEvent =
       duration?: number;
       label?: string;
     }
-  | { type: 'done'; sessionId?: string; usage?: UsageStats }
+  | { type: 'done'; sessionId?: string; context?: ContextUsage | null }
   | { type: 'error'; error?: string };
 
 const FINISHED_REFETCH_DELAY_MS = 700;
@@ -41,20 +41,25 @@ function compactSettings(settings?: AgentRunSettings): AgentRunSettings | undefi
   return Object.keys(compacted).length > 0 ? compacted : undefined;
 }
 
-function findLastUsage(msgs: { role: string; usage?: UsageStats }[]): UsageStats | undefined {
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    if (msgs[i].role === 'assistant' && msgs[i].usage) return msgs[i].usage;
-  }
-}
-
-function hydrateLastAssistantUsage(msgs: ChatMessage[], usage?: UsageStats | null): ChatMessage[] {
-  if (!usage) return msgs;
+function preserveLiveAssistantDetails(msgs: ChatMessage[], run?: LiveChatRun | null): ChatMessage[] {
+  const liveAssistant = run ? findLastAssistant(run.messages) : undefined;
+  if (!liveAssistant) return msgs;
+  const liveTools = liveAssistant.tools;
+  if (!liveAssistant.thinking && !liveTools?.length) return msgs;
 
   for (let i = msgs.length - 1; i >= 0; i--) {
     if (msgs[i].role !== 'assistant') continue;
-    if (msgs[i].usage) return msgs;
+
+    const needsThinking = !!liveAssistant.thinking && !msgs[i].thinking;
+    const needsTools = !!liveTools?.length && !msgs[i].tools?.length;
+    if (!needsThinking && !needsTools) return msgs;
+
     const copy = msgs.slice();
-    copy[i] = { ...copy[i], usage: { ...usage } };
+    copy[i] = {
+      ...copy[i],
+      ...(needsThinking ? { thinking: liveAssistant.thinking } : {}),
+      ...(needsTools ? { tools: liveTools.map((tool) => ({ ...tool })) } : {}),
+    };
     return copy;
   }
 
@@ -110,7 +115,6 @@ function snapshotMessages(messages: LiveChatMessage[]): ChatMessage[] {
   return messages.map((msg) => ({
     ...msg,
     tools: msg.tools ? msg.tools.map((t) => ({ ...t })) : undefined,
-    usage: msg.usage ? { ...msg.usage } : undefined,
   }));
 }
 
@@ -135,14 +139,14 @@ export function useChat() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [thinkingContent, setThinkingContent] = useState('');
   const [activeTools, setActiveTools] = useState<ToolProgressEvent[]>([]);
-  const [usage, setUsage] = useState<UsageStats | null>(null);
+  const [context, setContext] = useState<ContextUsage | null>(null);
 
   const postAbortRef = useRef<AbortController | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
   const taskIdRef = useRef<string | null>(null);
   const committedMessagesRef = useRef<ChatMessage[]>([]);
   const liveRunRef = useRef<LiveChatRun | null>(null);
-  const liveUsageRef = useRef<UsageStats | null>(null);
+  const liveContextRef = useRef<ContextUsage | null>(null);
   const lastCommittedRunIdRef = useRef<string | null>(null);
   const refetchTimerRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
@@ -173,7 +177,6 @@ export function useChat() {
   const publishState = useCallback(() => {
     const committed = committedMessagesRef.current;
     const liveRun = liveRunRef.current;
-    const committedUsage = findLastUsage(committed);
 
     if (liveRun && liveRun.runId !== lastCommittedRunIdRef.current) {
       const merged = [...committed, ...liveMessagesFor(committed, liveRun)];
@@ -184,7 +187,7 @@ export function useChat() {
       setIsStreaming(streaming);
       setThinkingContent(streaming ? assistant?.thinking ?? '' : '');
       setActiveTools(streaming ? assistant?.tools?.map((t) => ({ ...t })) ?? [] : []);
-      setUsage(liveRun.usage ?? liveUsageRef.current ?? committedUsage ?? null);
+      setContext(liveRun.context !== undefined ? liveRun.context : liveContextRef.current);
       return;
     }
 
@@ -192,7 +195,7 @@ export function useChat() {
     setIsStreaming(false);
     setThinkingContent('');
     setActiveTools([]);
-    setUsage(liveUsageRef.current ?? committedUsage ?? null);
+    setContext(liveContextRef.current);
   }, []);
 
   const schedulePublish = useCallback(() => {
@@ -205,11 +208,14 @@ export function useChat() {
 
   const refreshCommittedMessages = useCallback(async (taskId: string, finishedRunId?: string) => {
     try {
-      const { messages: msgs, usage: persistedUsage } = await fetchMessages(taskId);
+      const { messages: msgs, context: persistedContext } = await fetchMessages(taskId);
       if (taskIdRef.current !== taskId) return;
 
-      committedMessagesRef.current = hydrateLastAssistantUsage(msgs as ChatMessage[], persistedUsage);
-      liveUsageRef.current = persistedUsage ?? findLastUsage(committedMessagesRef.current) ?? liveUsageRef.current;
+      const finishedLiveRun = finishedRunId && liveRunRef.current?.runId === finishedRunId
+        ? liveRunRef.current
+        : null;
+      committedMessagesRef.current = preserveLiveAssistantDetails(msgs as ChatMessage[], finishedLiveRun);
+      liveContextRef.current = persistedContext ?? liveContextRef.current;
 
       if (finishedRunId) {
         lastCommittedRunIdRef.current = finishedRunId;
@@ -241,7 +247,7 @@ export function useChat() {
     }
 
     liveRunRef.current = run;
-    if (run.usage) liveUsageRef.current = run.usage;
+    if (run.context !== undefined) liveContextRef.current = run.context;
     publishState();
 
     if (run.status === 'done') scheduleFinishedRefresh(run.taskId, run.runId);
@@ -297,11 +303,9 @@ export function useChat() {
     if (event.type === 'done') {
       if (event.sessionId) run.sessionId = event.sessionId;
       if (run.status !== 'error') run.status = 'done';
-      const assistant = ensureAssistant(run);
-      if (event.usage) {
-        run.usage = event.usage;
-        assistant.usage = event.usage;
-        liveUsageRef.current = event.usage;
+      if (event.context !== undefined) {
+        run.context = event.context;
+        liveContextRef.current = event.context;
       }
       run.updatedAt = Date.now();
       publishState();
@@ -343,24 +347,24 @@ export function useChat() {
     taskIdRef.current = null;
     committedMessagesRef.current = [];
     liveRunRef.current = null;
-    liveUsageRef.current = null;
+    liveContextRef.current = null;
     lastCommittedRunIdRef.current = null;
     setMessages([]);
     setIsStreaming(false);
     setThinkingContent('');
     setActiveTools([]);
-    setUsage(null);
+    setContext(null);
   }, [teardown]);
 
   const loadMessages = useCallback(async (taskId: string) => {
     clearAllState();
     taskIdRef.current = taskId;
 
-    const { messages: msgs, usage: persistedUsage } = await fetchMessages(taskId);
+    const { messages: msgs, context: persistedContext } = await fetchMessages(taskId);
     if (taskIdRef.current !== taskId) return msgs;
 
-    committedMessagesRef.current = hydrateLastAssistantUsage(msgs as ChatMessage[], persistedUsage);
-    liveUsageRef.current = persistedUsage ?? findLastUsage(committedMessagesRef.current) ?? null;
+    committedMessagesRef.current = msgs as ChatMessage[];
+    liveContextRef.current = persistedContext ?? null;
     publishState();
     openLiveSubscription(taskId);
     return msgs;
@@ -417,5 +421,5 @@ export function useChat() {
     teardown();
   }, [teardown]);
 
-  return { messages, isStreaming, thinkingContent, activeTools, usage, sendMessage, loadMessages, reset: clearAllState };
+  return { messages, isStreaming, thinkingContent, activeTools, context, sendMessage, loadMessages, reset: clearAllState };
 }

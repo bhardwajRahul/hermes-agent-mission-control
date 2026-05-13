@@ -5,7 +5,7 @@ import type {
   CronRun,
   SessionMetadata,
   TaskMessage,
-  UsageStats,
+  ContextUsage,
 } from '../../shared/types.js';
 import type { AgentRunSettings } from './types.js';
 
@@ -74,5 +74,5 @@ export type WorkerEvent =
       duration?: number;
       label?: string | null;
     }
-  | { id: string; type: 'done'; sessionId?: string; usage?: UsageStats }
+  | { id: string; type: 'done'; sessionId?: string; context?: ContextUsage | null }
   | { id: string; type: 'error'; error: string | WorkerErrorPayload };

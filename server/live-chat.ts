@@ -18,9 +18,8 @@ function cloneRun(run: LiveChatRun): LiveChatRun {
     messages: run.messages.map((message) => ({
       ...message,
       tools: message.tools ? message.tools.map((tool) => ({ ...tool })) : undefined,
-      usage: message.usage ? { ...message.usage } : undefined,
     })),
-    usage: run.usage ? { ...run.usage } : undefined,
+    context: run.context ? { ...run.context } : null,
   };
 }
 
@@ -157,9 +156,8 @@ export function applyEvent(taskId: string, event: StreamEvent): void {
   } else if (event.type === 'done') {
     if (run.status !== 'error') run.status = 'done';
     if (event.sessionId) run.sessionId = event.sessionId;
-    if (event.usage) {
-      run.usage = event.usage;
-      assistant.usage = event.usage;
+    if (event.context !== undefined) {
+      run.context = event.context;
     }
   } else if (event.type === 'error') {
     const error = event.error || 'Unknown error';
@@ -180,8 +178,8 @@ export function getRun(taskId: string): LiveChatRun | undefined {
   return run ? cloneRun(run) : undefined;
 }
 
-export function getRunUsage(taskId: string): LiveChatRun['usage'] | undefined {
-  return runs.get(taskId)?.usage;
+export function getRunContext(taskId: string): LiveChatRun['context'] | undefined {
+  return runs.get(taskId)?.context;
 }
 
 export function getRunStatus(taskId: string): TaskRunState | undefined {

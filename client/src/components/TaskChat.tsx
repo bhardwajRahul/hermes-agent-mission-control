@@ -97,7 +97,7 @@ function ToolCallBlock({ tool }: { tool: ToolProgressEvent }) {
 }
 
 export function TaskChat({ taskId, initialMessage, initialSettings }: TaskChatProps) {
-  const { messages, isStreaming, thinkingContent, activeTools, usage, sendMessage, loadMessages } = useChat();
+  const { messages, isStreaming, thinkingContent, activeTools, context, sendMessage, loadMessages } = useChat();
   const [input, setInput] = useState('');
   const [loadedTaskId, setLoadedTaskId] = useState<string | null>(null);
   const startupRef = useRef({ taskId, initialMessage, initialSettings });
@@ -256,7 +256,7 @@ export function TaskChat({ taskId, initialMessage, initialSettings }: TaskChatPr
               onReasoningEffortChange={setReasoningEffort}
             />
             <div className="flex items-center gap-2">
-              {usage && <ContextRing usage={usage} />}
+              {context && <ContextRing context={context} />}
               <button
                 onClick={handleSubmit}
                 disabled={!input.trim() || isStreaming || configPending}

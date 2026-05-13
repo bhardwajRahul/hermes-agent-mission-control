@@ -4,7 +4,7 @@ import {
   type Task,
   type TaskStatus,
   type ReasoningEffort,
-  type UsageStats,
+  type ContextUsage,
 } from '../../shared/types.js';
 
 const stmtAllTasks = db.prepare('SELECT * FROM tasks ORDER BY updated_at DESC');
@@ -14,12 +14,12 @@ const stmtInsertTask = db.prepare(`
   INSERT INTO tasks (
     id, title, description, status, agent_model, reasoning_effort,
     created_at, updated_at, last_agent_response_at, last_viewed_at,
-    last_usage_input_tokens, last_usage_output_tokens, last_usage_total_tokens
+    last_context_used_tokens, last_context_window_tokens
   )
   VALUES (
     @id, @title, @description, @status, @agent_model, @reasoning_effort,
     @created_at, @updated_at, @last_agent_response_at, @last_viewed_at,
-    @last_usage_input_tokens, @last_usage_output_tokens, @last_usage_total_tokens
+    @last_context_used_tokens, @last_context_window_tokens
   )
 `);
 const stmtDeleteTask = db.prepare('DELETE FROM tasks WHERE id = ?');
@@ -60,9 +60,8 @@ export function insertTask(task: {
     updated_at: now,
     last_agent_response_at: task.last_agent_response_at ?? null,
     last_viewed_at: null,
-    last_usage_input_tokens: null,
-    last_usage_output_tokens: null,
-    last_usage_total_tokens: null,
+    last_context_used_tokens: null,
+    last_context_window_tokens: null,
   };
   stmtInsertTask.run(row);
   return row as Task;
@@ -75,9 +74,8 @@ const ALLOWED_UPDATE_FIELDS = new Set<string>([
   'agent_model',
   'reasoning_effort',
   'last_agent_response_at',
-  'last_usage_input_tokens',
-  'last_usage_output_tokens',
-  'last_usage_total_tokens',
+  'last_context_used_tokens',
+  'last_context_window_tokens',
 ]);
 const updateStmtCache = new Map<string, ReturnType<typeof db.prepare>>();
 
@@ -89,9 +87,8 @@ type TaskUpdateFields = Pick<
   | 'agent_model'
   | 'reasoning_effort'
   | 'last_agent_response_at'
-  | 'last_usage_input_tokens'
-  | 'last_usage_output_tokens'
-  | 'last_usage_total_tokens'
+  | 'last_context_used_tokens'
+  | 'last_context_window_tokens'
 >;
 
 function getUpdateStmt(fieldKeys: string[]): ReturnType<typeof db.prepare> {
@@ -129,55 +126,18 @@ export function touchTask(id: string): void {
   stmtTouchTask.run(Date.now(), id);
 }
 
-function normalizeTokenCount(value: number | null | undefined): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.trunc(value ?? 0));
+export function contextFromTask(task: Task): ContextUsage | null {
+  if (task.last_context_used_tokens == null || task.last_context_window_tokens == null) return null;
+  return { used_tokens: task.last_context_used_tokens, window_tokens: task.last_context_window_tokens };
 }
 
-function usageUpdateFields(usage: UsageStats | null): Pick<
-  Task,
-  'last_usage_input_tokens' | 'last_usage_output_tokens' | 'last_usage_total_tokens'
-> {
-  if (!usage) {
-    return {
-      last_usage_input_tokens: null,
-      last_usage_output_tokens: null,
-      last_usage_total_tokens: null,
-    };
-  }
-
-  const input = normalizeTokenCount(usage.input_tokens);
-  const output = normalizeTokenCount(usage.output_tokens);
-  const total = normalizeTokenCount(usage.total_tokens) || input + output;
-  return {
-    last_usage_input_tokens: input,
-    last_usage_output_tokens: output,
-    last_usage_total_tokens: total,
-  };
-}
-
-export function usageFromTask(task: Task): UsageStats | null {
-  if (
-    task.last_usage_input_tokens == null &&
-    task.last_usage_output_tokens == null &&
-    task.last_usage_total_tokens == null
-  ) {
-    return null;
-  }
-
-  const input = task.last_usage_input_tokens ?? 0;
-  const output = task.last_usage_output_tokens ?? 0;
-  return {
-    input_tokens: input,
-    output_tokens: output,
-    total_tokens: task.last_usage_total_tokens || input + output,
-  };
-}
-
-export function recordAgentResponse(taskId: string, at = Date.now(), usage?: UsageStats | null): Task | undefined {
+export function recordAgentResponse(taskId: string, at = Date.now(), context?: ContextUsage | null): Task | undefined {
   return updateTask(taskId, {
     last_agent_response_at: at,
-    ...(usage === undefined ? {} : usageUpdateFields(usage)),
+    ...(context !== undefined ? {
+      last_context_used_tokens: context?.used_tokens ?? null,
+      last_context_window_tokens: context?.window_tokens ?? null,
+    } : {}),
   });
 }
 
