@@ -154,17 +154,25 @@ chatRouter.post('/:id/messages', async (req, res) => {
   }
 
   let runTask = task;
+  const taskUpdates: Partial<Pick<Task, 'status' | 'agent_model' | 'reasoning_effort'>> = {};
   if (runSettings.hasFields) {
     const { taskFields } = runSettings;
-    const changed =
-      (taskFields.agent_model !== undefined && taskFields.agent_model !== task.agent_model) ||
-      (taskFields.reasoning_effort !== undefined && taskFields.reasoning_effort !== task.reasoning_effort);
-    if (changed) {
-      const updated = updateTask(task.id, taskFields);
-      if (!updated) return res.status(404).json({ error: 'Task not found' });
-      runTask = updated;
-      broadcast({ type: 'task_updated', task: updated });
+    if (taskFields.agent_model !== undefined && taskFields.agent_model !== task.agent_model) {
+      taskUpdates.agent_model = taskFields.agent_model;
     }
+    if (taskFields.reasoning_effort !== undefined && taskFields.reasoning_effort !== task.reasoning_effort) {
+      taskUpdates.reasoning_effort = taskFields.reasoning_effort;
+    }
+  }
+  if (task.status === 'in_review') {
+    taskUpdates.status = 'in_progress';
+  }
+
+  if (Object.keys(taskUpdates).length > 0) {
+    const updated = updateTask(task.id, taskUpdates);
+    if (!updated) return res.status(404).json({ error: 'Task not found' });
+    runTask = updated;
+    broadcast({ type: 'task_updated', task: updated });
   }
 
   const sessionId = runTask.id;
