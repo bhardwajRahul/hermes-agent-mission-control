@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { ArrowUp, Loader2, ChevronDown, ChevronRight, Check, Terminal, FileText, FilePenLine, Globe, Code, Wrench } from 'lucide-react';
 import { InputToolbar, ContextRing } from './InputToolbar';
 import { MarkdownContent } from './MarkdownContent';
@@ -99,6 +99,7 @@ function ToolCallBlock({ tool }: { tool: ToolProgressEvent }) {
 export function TaskChat({ taskId, initialMessage, initialSettings }: TaskChatProps) {
   const { messages, isStreaming, thinkingContent, activeTools, usage, sendMessage, loadMessages } = useChat();
   const [input, setInput] = useState('');
+  const [loadedTaskId, setLoadedTaskId] = useState<string | null>(null);
   const startupRef = useRef({ taskId, initialMessage, initialSettings });
   if (startupRef.current.taskId !== taskId) {
     startupRef.current = { taskId, initialMessage, initialSettings };
@@ -110,15 +111,20 @@ export function TaskChat({ taskId, initialMessage, initialSettings }: TaskChatPr
   const waitingForTaskSettings = isLoading && !startupRef.current.initialSettings;
   const toolbarDefaults = waitingForTaskSettings ? null : defaults;
   const configPending = waitingForTaskSettings || (!defaults && isLoading);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const didInitialScrollRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+    setLoadedTaskId(null);
+    didInitialScrollRef.current = false;
     loadMessages(taskId)
       .then((loadedMessages) => {
+        if (cancelled) return;
+        setLoadedTaskId(taskId);
         const firstMessage = startupRef.current.initialMessage;
-        if (firstMessage && !cancelled) {
+        if (firstMessage) {
           startupRef.current.initialMessage = undefined;
           if (loadedMessages.length === 0) {
             sendMessage(taskId, firstMessage, startupRef.current.initialSettings);
@@ -130,9 +136,15 @@ export function TaskChat({ taskId, initialMessage, initialSettings }: TaskChatPr
     return () => { cancelled = true; };
   }, [taskId, loadMessages, sendMessage]);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]);
+  useLayoutEffect(() => {
+    if (loadedTaskId !== taskId || didInitialScrollRef.current) return;
+
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    container.scrollTop = container.scrollHeight;
+    didInitialScrollRef.current = true;
+  }, [loadedTaskId, messages.length, taskId]);
 
   const handleSubmit = useCallback(async () => {
     const text = input.trim();
@@ -153,68 +165,72 @@ export function TaskChat({ taskId, initialMessage, initialSettings }: TaskChatPr
 
   return (
     <div className="flex w-full flex-col flex-1 min-h-0">
-      <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
-        <div className={`${CHAT_COLUMN_CLASS} space-y-3`}>
-          {messages.length === 0 && (
-            <p className="text-sm text-zinc-400 dark:text-zinc-500 text-center py-12">
-              Start a conversation with your assistant.
-            </p>
-          )}
-          {messages.map((msg, idx) => {
-            if (msg.role === 'user') {
+      <div className="relative flex-1 min-h-0">
+        <div
+          ref={messagesContainerRef}
+          className="h-full overflow-y-auto px-4 sm:px-6 py-4"
+        >
+          <div className={`${CHAT_COLUMN_CLASS} space-y-3`}>
+            {messages.length === 0 && (
+              <p className="text-sm text-zinc-400 dark:text-zinc-500 text-center py-12">
+                Start a conversation with your assistant.
+              </p>
+            )}
+            {messages.map((msg, idx) => {
+              if (msg.role === 'user') {
+                return (
+                  <div key={msg.id} className="flex justify-end">
+                    <div className="max-w-[85%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100">
+                      {msg.content}
+                    </div>
+                  </div>
+                );
+              }
+
+              const isLastAssistant = idx === messages.length - 1 && msg.role === 'assistant';
+              const thinkingToShow = isLastAssistant && isStreaming ? thinkingContent : (msg.thinking || '');
+              const isLiveThinking = isLastAssistant && isStreaming && !!thinkingContent;
+              const toolsToShow = isLastAssistant && isStreaming ? activeTools : (msg.tools ?? []);
+              const showSpinner = isLastAssistant && isStreaming && !msg.content && !thinkingContent && !activeTools.some(t => t.status === 'running');
+
               return (
-                <div key={msg.id} className="flex justify-end">
-                  <div className="max-w-[85%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100">
-                    {msg.content}
+                <div key={msg.id} className="flex justify-start">
+                  <div className="w-full px-1 sm:px-2">
+                    {thinkingToShow && (
+                      <ThinkingBlock content={thinkingToShow} isLive={isLiveThinking} />
+                    )}
+                    {toolsToShow.length > 0 && (
+                      <div className="mb-4 space-y-2.5">
+                        {toolsToShow.map((tool, i) => (
+                          <ToolCallBlock key={`${tool.tool}-${i}`} tool={tool} />
+                        ))}
+                      </div>
+                    )}
+                    <div className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+                      {msg.content ? (
+                        <MarkdownContent content={msg.content} isStreaming={isLastAssistant && isStreaming} />
+                      ) : (
+                        showSpinner && (
+                          <span className="inline-flex items-center gap-2 text-zinc-400 dark:text-zinc-500">
+                            <span>Thinking</span>
+                            <span className="inline-flex gap-1">
+                              {[0, 150, 300].map((delay) => (
+                                <span
+                                  key={delay}
+                                  className="w-1.5 h-1.5 rounded-full bg-current animate-pulse"
+                                  style={{ animationDelay: `${delay}ms` }}
+                                />
+                              ))}
+                            </span>
+                          </span>
+                        )
+                      )}
+                    </div>
                   </div>
                 </div>
               );
-            }
-
-            const isLastAssistant = idx === messages.length - 1 && msg.role === 'assistant';
-            const thinkingToShow = isLastAssistant && isStreaming ? thinkingContent : (msg.thinking || '');
-            const isLiveThinking = isLastAssistant && isStreaming && !!thinkingContent;
-            const toolsToShow = isLastAssistant && isStreaming ? activeTools : (msg.tools ?? []);
-            const showSpinner = isLastAssistant && isStreaming && !msg.content && !thinkingContent && !activeTools.some(t => t.status === 'running');
-
-            return (
-              <div key={msg.id} className="flex justify-start">
-                <div className="w-full px-1 sm:px-2">
-                  {thinkingToShow && (
-                    <ThinkingBlock content={thinkingToShow} isLive={isLiveThinking} />
-                  )}
-                  {toolsToShow.length > 0 && (
-                    <div className="mb-4 space-y-2.5">
-                      {toolsToShow.map((tool, i) => (
-                        <ToolCallBlock key={`${tool.tool}-${i}`} tool={tool} />
-                      ))}
-                    </div>
-                  )}
-                  <div className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-                    {msg.content ? (
-                      <MarkdownContent content={msg.content} isStreaming={isLastAssistant && isStreaming} />
-                    ) : (
-                      showSpinner && (
-                        <span className="inline-flex items-center gap-2 text-zinc-400 dark:text-zinc-500">
-                          <span>Thinking</span>
-                          <span className="inline-flex gap-1">
-                            {[0, 150, 300].map((delay) => (
-                              <span
-                                key={delay}
-                                className="w-1.5 h-1.5 rounded-full bg-current animate-pulse"
-                                style={{ animationDelay: `${delay}ms` }}
-                              />
-                            ))}
-                          </span>
-                        </span>
-                      )
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-          <div ref={messagesEndRef} />
+            })}
+          </div>
         </div>
       </div>
 

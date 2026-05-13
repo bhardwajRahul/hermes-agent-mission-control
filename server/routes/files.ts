@@ -46,6 +46,7 @@ interface FileCreateRequest {
 const HOME = resolve(homedir());
 const TEXT_SAMPLE_BYTES = 8192;
 const MAX_TEXT_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_TEXT_FILE_SIZE_DISPLAY = '10 MiB';
 const DEFAULT_FILE_BROWSER_PATH = '~/.minions/workspace';
 const UPLOAD_TMP_DIR = join(tmpdir(), 'minions-uploads');
 
@@ -112,7 +113,7 @@ filesRouter.get('/read', async (req, res) => {
       throw new FileRouteError(400, 'Path is not a regular text file', 'NOT_FILE');
     }
     if (fileStats.size > MAX_TEXT_FILE_SIZE) {
-      throw new FileRouteError(413, 'File is too large to open as text', 'FILE_TOO_LARGE');
+      throw new FileRouteError(413, `File is too large to open as text. Maximum size is ${MAX_TEXT_FILE_SIZE_DISPLAY}.`, 'FILE_TOO_LARGE');
     }
     if (await looksBinary(filePath, fileStats.size)) {
       throw new FileRouteError(415, 'Binary files cannot be opened as text', 'BINARY_FILE');
@@ -242,7 +243,7 @@ filesRouter.patch('/rename', async (req, res) => {
     const newName = validateFileName(body.newName);
     const targetPath = join(dirname(sourcePath), newName);
 
-    if (await pathExists(targetPath)) {
+    if (await canAccess(targetPath, constants.F_OK)) {
       throw new FileRouteError(409, 'Target already exists', 'EEXIST');
     }
 
@@ -327,6 +328,7 @@ function parseWriteRequest(value: unknown): FileWriteRequest {
   if (!isRecord(value)) throw new FileRouteError(400, 'Request body is required', 'BAD_REQUEST');
   if (typeof value.path !== 'string') throw new FileRouteError(400, 'Path is required', 'BAD_REQUEST');
   if (typeof value.content !== 'string') throw new FileRouteError(400, 'Content is required', 'BAD_REQUEST');
+  assertTextContentSize(value.content);
 
   return {
     path: value.path,
@@ -344,12 +346,25 @@ function parseCreateRequest(value: unknown): FileCreateRequest {
     throw new FileRouteError(400, 'Type must be file or directory', 'BAD_REQUEST');
   }
 
+  let content: string | undefined;
+  if (typeof value.content === 'string') {
+    assertTextContentSize(value.content);
+    content = value.content;
+  } else if (value.content !== undefined) {
+    throw new FileRouteError(400, 'Content must be a string', 'BAD_REQUEST');
+  }
+
   return {
     parentPath: value.parentPath,
     name: value.name,
     type: value.type,
-    content: typeof value.content === 'string' ? value.content : undefined,
+    content,
   };
+}
+
+function assertTextContentSize(content: string): void {
+  if (Buffer.byteLength(content, 'utf8') <= MAX_TEXT_FILE_SIZE) return;
+  throw new FileRouteError(413, `Text file content cannot exceed ${MAX_TEXT_FILE_SIZE_DISPLAY}.`, 'FILE_TOO_LARGE');
 }
 
 function parseUploadRequest(value: unknown, fileCount: number): { targetPath: string; relativePaths: string[] } {
@@ -443,7 +458,7 @@ function isSameOrChildPath(parentPath: string, childPath: string): boolean {
 
 async function entryFromDirent(parentPath: string, dirent: Dirent): Promise<FileEntry> {
   const entryPath = join(parentPath, dirent.name);
-  const type = typeFromDirent(dirent);
+  const type = fileEntryType(dirent);
   return entryFromPath(entryPath, dirent.name, type, type !== 'symlink');
 }
 
@@ -489,7 +504,7 @@ async function entryFromPath(
     }
   }
 
-  const type = skipLstat ? fallbackType : typeFromStats(linkStats!);
+  const type = skipLstat ? fallbackType : fileEntryType(linkStats!);
   const metadataStats = targetStats ?? linkStats!;
   const [readable, writable] = await Promise.all([
     canAccess(entryPath, constants.R_OK),
@@ -527,17 +542,10 @@ function displayPath(absolutePath: string): string {
   return absolutePath;
 }
 
-function typeFromDirent(dirent: Dirent): FileEntryType {
-  if (dirent.isSymbolicLink()) return 'symlink';
-  if (dirent.isDirectory()) return 'directory';
-  if (dirent.isFile()) return 'file';
-  return 'other';
-}
-
-function typeFromStats(stats: Stats): FileEntryType {
-  if (stats.isSymbolicLink()) return 'symlink';
-  if (stats.isDirectory()) return 'directory';
-  if (stats.isFile()) return 'file';
+function fileEntryType(entry: { isSymbolicLink(): boolean; isDirectory(): boolean; isFile(): boolean }): FileEntryType {
+  if (entry.isSymbolicLink()) return 'symlink';
+  if (entry.isDirectory()) return 'directory';
+  if (entry.isFile()) return 'file';
   return 'other';
 }
 
@@ -571,15 +579,6 @@ async function looksBinary(filePath: string, size: number): Promise<boolean> {
     return controlBytes / bytesRead > 0.2;
   } finally {
     await handle.close();
-  }
-}
-
-async function pathExists(targetPath: string): Promise<boolean> {
-  try {
-    await access(targetPath, constants.F_OK);
-    return true;
-  } catch {
-    return false;
   }
 }
 
