@@ -82,7 +82,7 @@ export function Column({ status, tasks, streamingTaskIds, isLast = false, onRequ
               onClick={() => navigate('/tasks/new')}
               aria-label="Create task"
               title="Create task"
-              className="h-9 w-full inline-flex items-center justify-center rounded-lg border border-dashed border-zinc-200 dark:border-zinc-800 text-zinc-400 opacity-0 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 hover:border-zinc-300 dark:hover:border-zinc-700 group-hover/body:opacity-100 focus:opacity-100 focus-visible:opacity-100 transition-[opacity,background-color,border-color,color]"
+              className="h-9 w-full inline-flex items-center justify-center rounded-lg border border-dashed border-zinc-200 dark:border-zinc-800 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 hover:border-zinc-300 dark:hover:border-zinc-700 transition-[background-color,border-color,color]"
             >
               <Plus size={16} />
             </button>
