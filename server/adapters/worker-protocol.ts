@@ -41,6 +41,11 @@ export type WorkerRequest =
       taskTitle: string;
       taskDescription?: string | null;
       responseText: string;
+    }
+  | {
+      id: string;
+      type: 'title.generate';
+      description: string;
     };
 
 export interface WorkerErrorPayload {
@@ -60,7 +65,8 @@ export type WorkerResult =
   | { executed: number }
   | { messages: TaskMessage[] }
   | { session: SessionMetadata | null }
-  | { done: boolean; reason: string };
+  | { done: boolean; reason: string }
+  | { title: string };
 
 export type WorkerEvent =
   | { id: string; type: 'result'; data: WorkerResult }

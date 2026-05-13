@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getAllTasks, getTask, insertTask, updateTask, deleteTask, markTaskViewed } from '../db/queries.js';
 import { broadcast } from '../events.js';
+import { adapter } from '../app.js';
 import { TASK_STATUSES } from '../../shared/types.js';
 import type { TaskStatus } from '../../shared/types.js';
 
@@ -31,15 +32,30 @@ function generateTitle(text: string): string {
   return firstSentence.slice(0, 57) + '...';
 }
 
+async function enrichTaskTitle(taskId: string, fallbackTitle: string, description: string): Promise<void> {
+  try {
+    const { title } = await adapter.generateTitle(description);
+    const cleaned = title.trim();
+    if (!cleaned || cleaned === fallbackTitle) return;
+
+    const current = getTask(taskId);
+    if (!current || current.title !== fallbackTitle) return;
+
+    const updated = updateTask(taskId, { title: cleaned });
+    if (updated) broadcast({ type: 'task_updated', task: updated });
+  } catch {
+    // Best-effort: leave the fallback title in place if the LLM call fails.
+  }
+}
+
 tasksRouter.post('/', (req, res) => {
   const { description, title } = req.body;
   if (!description || typeof description !== 'string') {
     return res.status(400).json({ error: 'description is required' });
   }
 
-  const resolvedTitle = title && typeof title === 'string' && title.trim()
-    ? title.trim()
-    : generateTitle(description);
+  const userTitle = typeof title === 'string' ? title.trim() : '';
+  const resolvedTitle = userTitle || generateTitle(description);
   const task = insertTask({
     title: resolvedTitle,
     description,
@@ -47,6 +63,10 @@ tasksRouter.post('/', (req, res) => {
   });
   broadcast({ type: 'task_created', task });
   res.status(201).json({ task });
+
+  if (!userTitle) {
+    void enrichTaskTitle(task.id, resolvedTitle, description);
+  }
 });
 
 tasksRouter.patch('/:id', (req, res) => {

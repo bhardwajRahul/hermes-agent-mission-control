@@ -594,4 +594,11 @@ export class HermesWorkerAdapter implements AgentAdapter {
       responseText,
     });
   }
+
+  async generateTitle(description: string): Promise<{ title: string }> {
+    return await this.client.request<{ title: string }>({
+      type: 'title.generate',
+      description,
+    });
+  }
 }

@@ -48,4 +48,6 @@ export interface AgentAdapter {
     taskDescription: string | null,
     responseText: string,
   ): Promise<{ done: boolean; reason: string }>;
+
+  generateTitle(description: string): Promise<{ title: string }>;
 }

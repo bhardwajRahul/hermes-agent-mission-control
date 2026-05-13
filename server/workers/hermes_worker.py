@@ -17,7 +17,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 PROTOCOL_OUT = sys.stdout
 PROTOCOL_LOCK = threading.Lock()
@@ -1034,12 +1034,15 @@ def _remove_cron_job(job_id: Any) -> dict[str, Any]:
     return {"ok": removed}
 
 
+def _truncate_with_ellipsis(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3].rstrip() + "..."
+
+
 def _run_preview(content: str, max_chars: int = 420) -> str:
     lines = [line.strip() for line in content.splitlines() if line.strip()]
-    preview = "\n".join(lines[:6])
-    if len(preview) > max_chars:
-        preview = preview[: max_chars - 3].rstrip() + "..."
-    return preview
+    return _truncate_with_ellipsis("\n".join(lines[:6]), max_chars)
 
 
 def _run_timestamp_from_stem(stem: str) -> str | None:
@@ -1464,18 +1467,57 @@ def _run_chat_thread(request_id: str, request: dict[str, Any], task_key: str) ->
         _clear_task_active(task_key, request_id)
 
 
+def _run_one_shot_agent(label: str, system_message: str, user_message: str) -> str:
+    """Run a throwaway zero-reasoning agent turn and return its raw text response."""
+    agent = _create_agent(
+        session_id=f"minions-{label}-{uuid.uuid4().hex[:8]}",
+        requested_model=None,
+        reasoning_effort="none",
+    )
+    result = agent.run_conversation(
+        user_message=user_message,
+        system_message=system_message,
+        conversation_history=[],
+    )
+    return str(result.get("final_response") or "")
+
+
+def _submit_background_agent_request(
+    request_id: str,
+    request: dict[str, Any],
+    *,
+    name_prefix: str,
+    handler: Callable[[dict[str, Any]], dict[str, Any]],
+) -> None:
+    def runner() -> None:
+        acquired = False
+        try:
+            AGENT_SEMAPHORE.acquire()
+            acquired = True
+            _result(request_id, handler(request))
+        except Exception as exc:
+            _send_error(request_id, exc)
+        finally:
+            if acquired:
+                AGENT_SEMAPHORE.release()
+
+    threading.Thread(
+        target=runner,
+        daemon=True,
+        name=f"{name_prefix}-{request_id[:8]}",
+    ).start()
+
+
 def _judge_completion(request: dict[str, Any]) -> dict[str, Any]:
     """Evaluate whether the agent's response indicates task completion."""
     task_title = _string_or_none(request.get("taskTitle")) or ""
     task_description = _string_or_none(request.get("taskDescription")) or ""
     response_text = _string_or_none(request.get("responseText")) or ""
 
-    if not response_text.strip():
+    if not response_text:
         return {"done": False, "reason": "empty response"}
 
-    max_chars = 4000
-    if len(response_text) > max_chars:
-        response_text = response_text[:max_chars] + "..."
+    response_text = _truncate_with_ellipsis(response_text, 4000)
 
     task_context = task_title
     if task_description:
@@ -1495,21 +1537,7 @@ def _judge_completion(request: dict[str, Any]) -> dict[str, Any]:
         "- done=false for: questions, partial progress, clarification requests, errors, or ongoing work"
     )
 
-    session_id = f"minions-judge-{uuid.uuid4().hex[:8]}"
-
-    agent = _create_agent(
-        session_id=session_id,
-        requested_model=None,
-        reasoning_effort="none",
-    )
-
-    result = agent.run_conversation(
-        user_message=judge_prompt,
-        system_message=judge_system,
-        conversation_history=[],
-    )
-
-    text = str(result.get("final_response") or "")
+    text = _run_one_shot_agent("judge", judge_system, judge_prompt)
     json_match = re.search(r"\{[^{}]*\}", text)
     if json_match:
         try:
@@ -1524,28 +1552,40 @@ def _judge_completion(request: dict[str, Any]) -> dict[str, Any]:
     return {"done": False, "reason": "unparseable response"}
 
 
-def _run_judge_thread(request_id: str, request: dict[str, Any]) -> None:
-    acquired = False
-    try:
-        AGENT_SEMAPHORE.acquire()
-        acquired = True
-        result_data = _judge_completion(request)
-        _result(request_id, result_data)
-    except Exception as exc:
-        _send_error(request_id, exc)
-    finally:
-        if acquired:
-            AGENT_SEMAPHORE.release()
+def _clean_generated_title(raw: str) -> str:
+    """Sanitize the LLM's title output: strip quotes, trailing punctuation, cap length."""
+    stripped = raw.strip()
+    if not stripped:
+        return ""
+    title = stripped.splitlines()[0].strip()
+    # Strip wrapping quotes/backticks the model often adds (handles nested quotes)
+    while len(title) >= 2 and title[0] in {'"', "'", "`"} and title[-1] == title[0]:
+        title = title[1:-1].strip()
+    title = title.rstrip(".!?,;:")
+    return _truncate_with_ellipsis(title, 60)
 
 
-def _submit_judge_request(request_id: str, request: dict[str, Any]) -> None:
-    thread = threading.Thread(
-        target=_run_judge_thread,
-        args=(request_id, request),
-        daemon=True,
-        name=f"judge-{request_id[:8]}",
+def _generate_title(request: dict[str, Any]) -> dict[str, Any]:
+    """Generate a short descriptive title for a task from its initial message."""
+    description = _string_or_none(request.get("description")) or ""
+    if not description:
+        return {"title": ""}
+
+    description = _truncate_with_ellipsis(description, 2000)
+
+    title_system = (
+        "You generate short, descriptive titles for tasks. "
+        "Reply with ONLY the title text — no quotes, no preamble, no trailing punctuation. "
+        "Do not use any tools."
     )
-    thread.start()
+
+    title_prompt = (
+        f"Write a concise 3-7 word title for this task:\n\n{description}\n\n"
+        "Reply with only the title."
+    )
+
+    text = _run_one_shot_agent("title", title_system, title_prompt)
+    return {"title": _clean_generated_title(text)}
 
 
 def _submit_chat_request(request_id: str, request: dict[str, Any]) -> None:
@@ -1619,7 +1659,9 @@ def _handle_request(request: dict[str, Any]) -> None:
         elif request_type == "chat":
             _submit_chat_request(request_id, request)
         elif request_type == "judge.completion":
-            _submit_judge_request(request_id, request)
+            _submit_background_agent_request(request_id, request, name_prefix="judge", handler=_judge_completion)
+        elif request_type == "title.generate":
+            _submit_background_agent_request(request_id, request, name_prefix="title", handler=_generate_title)
         else:
             raise WorkerError(f"Unknown request type: {request_type}", code="bad_request")
     except Exception as exc:
