@@ -56,6 +56,7 @@ const TOOL_ICONS: Record<string, typeof Terminal> = {
 };
 
 const CHAT_COLUMN_CLASS = 'w-full max-w-[760px] mx-auto';
+const PLACEHOLDER_CLASS = 'text-sm text-zinc-400 dark:text-zinc-500 text-center py-12';
 
 function getToolIcon(name: string) {
   return TOOL_ICONS[name] ?? Wrench;
@@ -101,6 +102,7 @@ export function TaskChat({ taskId, initialMessage, initialSettings }: TaskChatPr
   const { messages, isStreaming, thinkingContent, activeTools, context, sendMessage, loadMessages } = useChat();
   const [input, setInput] = useState('');
   const [loadedTaskId, setLoadedTaskId] = useState<string | null>(null);
+  const [messageLoadError, setMessageLoadError] = useState(false);
   const startupRef = useRef({ taskId, initialMessage, initialSettings });
   if (startupRef.current.taskId !== taskId) {
     startupRef.current = { taskId, initialMessage, initialSettings };
@@ -119,6 +121,7 @@ export function TaskChat({ taskId, initialMessage, initialSettings }: TaskChatPr
   useEffect(() => {
     let cancelled = false;
     setLoadedTaskId(null);
+    setMessageLoadError(false);
     didInitialScrollRef.current = false;
     loadMessages(taskId)
       .then((loadedMessages) => {
@@ -132,7 +135,11 @@ export function TaskChat({ taskId, initialMessage, initialSettings }: TaskChatPr
           }
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (cancelled) return;
+        setMessageLoadError(true);
+        setLoadedTaskId(taskId);
+      });
     inputRef.current?.focus();
     return () => { cancelled = true; };
   }, [taskId, loadMessages, sendMessage]);
@@ -158,6 +165,7 @@ export function TaskChat({ taskId, initialMessage, initialSettings }: TaskChatPr
     (e: React.KeyboardEvent) => handleChatKeyDown(e, handleSubmit),
     [handleSubmit],
   );
+  const isLoadingMessages = loadedTaskId !== taskId;
 
   return (
     <div className="flex w-full flex-col flex-1 min-h-0">
@@ -167,11 +175,16 @@ export function TaskChat({ taskId, initialMessage, initialSettings }: TaskChatPr
           className="h-full overflow-y-auto px-4 sm:px-6 py-4"
         >
           <div className={`${CHAT_COLUMN_CLASS} space-y-3`}>
-            {messages.length === 0 && (
-              <p className="text-sm text-zinc-400 dark:text-zinc-500 text-center py-12">
-                Start a conversation with your assistant.
-              </p>
-            )}
+            {isLoadingMessages ? (
+              <div className="flex items-center justify-center gap-2 py-12 text-sm text-zinc-400 dark:text-zinc-500">
+                <Loader2 size={16} className="animate-spin" />
+                <span>Loading conversation...</span>
+              </div>
+            ) : messageLoadError ? (
+              <p className={PLACEHOLDER_CLASS}>Unable to load conversation.</p>
+            ) : messages.length === 0 ? (
+              <p className={PLACEHOLDER_CLASS}>Start a conversation with your assistant.</p>
+            ) : null}
             {messages.map((msg, idx) => {
               if (msg.role === 'user') {
                 return (
