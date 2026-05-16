@@ -957,11 +957,7 @@ def _sync_session_identity(agent: Any, session_id: str) -> None:
 
 
 def _warm_agent() -> None:
-    _create_agent(
-        session_id="minions-healthcheck",
-        requested_model=None,
-        reasoning_effort=None,
-    )
+    _load_config()
 
 
 def _run_chat(request_id: str, request: dict[str, Any]) -> None:

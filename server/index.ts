@@ -17,7 +17,14 @@ type ShutdownReason = NodeJS.Signals | 'startup-error';
 async function main() {
   ensureBundledSkillsLinked();
   closeFrontend = await mountFrontend(app, httpServer);
-  await adapter.start();
+  try {
+    await adapter.start();
+  } catch (error) {
+    console.error(
+      'Hermes worker failed to start — UI will load but agent features are unavailable until the worker recovers:',
+      error instanceof Error ? error.message : error,
+    );
+  }
   httpServer.listen(PORT);
   await once(httpServer, 'listening');
 
