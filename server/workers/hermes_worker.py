@@ -342,7 +342,7 @@ def _set_defaults(request: dict[str, Any]) -> dict[str, Any]:
 
     provider_present = "provider" in request
     requested_provider = string_or_none(request.get("provider")) if provider_present else None
-    if requested_provider and not _provider_hint_is_available(requested_provider):
+    if requested_provider and not _provider_hint_is_selectable(requested_provider, cfg):
         _raise_invalid_provider(requested_provider)
 
     if "model" in request:
@@ -354,7 +354,7 @@ def _set_defaults(request: dict[str, Any]) -> dict[str, Any]:
             if parsed:
                 parsed_provider, bare_model = parsed
                 provider_hint = requested_provider or parsed_provider
-                if provider_hint and not _provider_hint_is_available(provider_hint):
+                if provider_hint and not _provider_hint_is_selectable(provider_hint, cfg):
                     _raise_invalid_provider(provider_hint)
                 cfg["model"]["default"] = bare_model
                 if provider_hint:
@@ -369,7 +369,7 @@ def _set_defaults(request: dict[str, Any]) -> dict[str, Any]:
                     resolved_model, resolved_provider = model_val, requested_provider
                 else:
                     resolved_model, resolved_provider, _ = _resolve_model_provider(model_val, cfg)
-                if resolved_provider and not _provider_hint_is_available(resolved_provider):
+                if resolved_provider and not _provider_hint_is_selectable(resolved_provider, cfg):
                     _raise_invalid_provider(resolved_provider)
                 cfg["model"]["default"] = resolved_model
                 if resolved_provider:
@@ -528,9 +528,22 @@ def _provider_hint_is_available(provider: str) -> bool:
         return False
 
 
+def _provider_hint_is_selectable(provider: str, cfg: dict[str, Any]) -> bool:
+    if _provider_hint_is_available(provider):
+        return True
+
+    provider_l = provider.strip().lower()
+    groups = _list_authenticated_model_groups(cfg, _defaults_from_config(cfg)) or {}
+    return any(
+        (string_or_none(model.get("provider")) or "").lower() == provider_l
+        for models in groups.values()
+        for model in models
+    )
+
+
 def _raise_invalid_provider(provider: str) -> None:
     raise WorkerError(
-        f"Provider '{provider}' is not configured or runnable by this Hermes install.",
+        f"Provider '{provider}' is not configured for this Hermes install.",
         code="invalid_provider",
         hint="Choose a configured provider, or configure this provider in Hermes first.",
     )
@@ -667,8 +680,7 @@ def _list_authenticated_model_groups(
         slug = string_or_none(provider_info.get("slug"))
         group_name = string_or_none(provider_info.get("name")) or slug or "configured"
         is_user_defined = bool(provider_info.get("is_user_defined"))
-        if not is_user_defined and slug and not _provider_hint_is_available(slug):
-            continue
+        # Inventory view — runtime validation happens in _create_agent().
         source = "custom" if is_user_defined else "catalog"
         models = provider_info.get("models")
         if not isinstance(models, list):
